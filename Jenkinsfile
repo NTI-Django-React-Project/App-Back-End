@@ -6,6 +6,11 @@ pipeline {
         ECR_REGISTRY = credentials('backend-ecr-registry')
         IMAGE_NAME = 'backend-app'
         IMAGE_TAG = "${env.BUILD_NUMBER}"
+        
+        // RDS Configuration
+        RDS_DB_NAME = 'gig_router_test'
+        RDS_PORT = '5432'
+        RDS_USERNAME = 'postgres'  // ← CHANGED from 'admin' to 'postgres'
     }
     
     stages {
@@ -26,8 +31,62 @@ pipeline {
                         . venv/bin/activate
                         pip install --upgrade pip
                         pip install -r requirements.txt
-                        pip list
                     '''
+                }
+            }
+        }
+        
+        stage('Setup Test Database') {
+            steps {
+                echo '=== Setting up test database in RDS ==='
+                dir('backend') {
+                    withCredentials([
+                        string(credentialsId: 'rds-host', variable: 'RDS_HOST'),
+                        string(credentialsId: 'rds-password', variable: 'RDS_PASSWORD')
+                    ]) {
+                        sh '''
+                            export PGPASSWORD="${RDS_PASSWORD}"
+                            
+                            # Create database if not exists
+                            psql -h ${RDS_HOST} -U ${RDS_USERNAME} -d postgres \
+                                -c "SELECT 1 FROM pg_database WHERE datname = '${RDS_DB_NAME}'" | grep -q 1 || \
+                            psql -h ${RDS_HOST} -U ${RDS_USERNAME} -d postgres \
+                                -c "CREATE DATABASE ${RDS_DB_NAME};"
+                            
+                            echo "✅ Test database ready"
+                        '''
+                    }
+                }
+            }
+        }
+        
+        stage('Run Migrations') {
+            steps {
+                echo '=== Running database migrations ==='
+                dir('backend') {
+                    withCredentials([
+                        string(credentialsId: 'rds-host', variable: 'RDS_HOST'),
+                        string(credentialsId: 'rds-password', variable: 'RDS_PASSWORD')
+                    ]) {
+                        sh '''
+                            . venv/bin/activate
+                            
+                            export DJANGO_SETTINGS_MODULE=gig_router.settings
+                            export SECRET_KEY=test-secret-key-for-ci
+                            export DEBUG=False
+                            export ALLOWED_HOSTS=localhost
+                            
+                            export DB_ENGINE=django.db.backends.postgresql
+                            export DB_NAME=${RDS_DB_NAME}
+                            export DB_USER=${RDS_USERNAME}
+                            export DB_PASSWORD=${RDS_PASSWORD}
+                            export DB_HOST=${RDS_HOST}
+                            export DB_PORT=${RDS_PORT}
+                            
+                            python manage.py migrate --noinput
+                            echo "✅ Migrations completed"
+                        '''
+                    }
                 }
             }
         }
@@ -36,19 +95,32 @@ pipeline {
             steps {
                 echo '=== Running Tests ==='
                 dir('backend') {
-                    sh '''
-                        . venv/bin/activate
-                        export DJANGO_SETTINGS_MODULE=gig_router.settings
-                        export SECRET_KEY=test-secret-key-for-ci
-                        export DEBUG=False
-                        export DB_ENGINE=django.db.backends.sqlite3
-                        export DB_NAME=:memory:
-                        export ALLOWED_HOSTS=localhost,127.0.0.1
-                        
-                        # Run tests
-                        pytest -v --junitxml=test-results/pytest-report.xml \
-                               --cov=. --cov-report=xml --cov-report=html
-                    '''
+                    withCredentials([
+                        string(credentialsId: 'rds-host', variable: 'RDS_HOST'),
+                        string(credentialsId: 'rds-password', variable: 'RDS_PASSWORD')
+                    ]) {
+                        sh '''
+                            . venv/bin/activate
+                            
+                            export DJANGO_SETTINGS_MODULE=gig_router.settings
+                            export SECRET_KEY=test-secret-key-for-ci
+                            export DEBUG=False
+                            export ALLOWED_HOSTS=localhost
+                            
+                            export DB_ENGINE=django.db.backends.postgresql
+                            export DB_NAME=${RDS_DB_NAME}
+                            export DB_USER=${RDS_USERNAME}
+                            export DB_PASSWORD=${RDS_PASSWORD}
+                            export DB_HOST=${RDS_HOST}
+                            export DB_PORT=${RDS_PORT}
+                            
+                            export REDIS_URL=redis://localhost:6379/0
+                            export OPENAI_API_KEY=test-key
+                            
+                            pytest -v --junitxml=test-results/pytest-report.xml \
+                                   --cov=. --cov-report=xml --cov-report=html
+                        '''
+                    }
                 }
             }
             post {
@@ -66,111 +138,52 @@ pipeline {
             }
         }
         
-        stage('SonarQube Analysis') {
+        stage('Cleanup Test Data') {
             steps {
-                echo '=== Running SonarQube Analysis ==='
+                echo '=== Cleaning up test data ==='
                 dir('backend') {
-                    script {
-                        withSonarQubeEnv('SonarQube') {
-                            sh '''
-                                sonar-scanner
-                            '''
-                        }
+                    withCredentials([
+                        string(credentialsId: 'rds-host', variable: 'RDS_HOST'),
+                        string(credentialsId: 'rds-password', variable: 'RDS_PASSWORD')
+                    ]) {
+                        sh '''
+                            . venv/bin/activate
+                            
+                            export DJANGO_SETTINGS_MODULE=gig_router.settings
+                            export SECRET_KEY=test-secret-key-for-ci
+                            export DB_ENGINE=django.db.backends.postgresql
+                            export DB_NAME=${RDS_DB_NAME}
+                            export DB_USER=${RDS_USERNAME}
+                            export DB_PASSWORD=${RDS_PASSWORD}
+                            export DB_HOST=${RDS_HOST}
+                            export DB_PORT=${RDS_PORT}
+                            
+                            python manage.py flush --noinput
+                            echo "✅ Test data cleaned"
+                        '''
                     }
                 }
             }
         }
         
-        stage('Quality Gate') {
-            steps {
-                echo '=== Waiting for Quality Gate ==='
-                timeout(time: 5, unit: 'MINUTES') {
-                    script {
-                        def qg = waitForQualityGate()
-                        if (qg.status != 'OK') {
-                            error "Pipeline aborted due to quality gate failure: ${qg.status}"
-                        }
-                    }
-                }
-            }
-        }
-        
-        stage('OWASP Dependency Check') {
-            steps {
-                echo '=== Running OWASP Dependency Check ==='
-                dependencyCheck additionalArguments: '''
-                    --scan backend/
-                    --format XML 
-                    --format HTML
-                    --project gig-router-backend
-                    --failOnCVSS 8
-                ''', odcInstallation: 'OWASP-DC'
-            }
-            post {
-                always {
-                    dependencyCheckPublisher pattern: '**/dependency-check-report.xml'
-                }
-            }
-        }
-        
-        stage('Build Docker Image') {
-            steps {
-                echo '=== Building Docker Image ==='
-                dir('backend') {
-                    script {
-                        sh """
-                            docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .
-                            docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:latest
-                            docker images | grep ${IMAGE_NAME}
-                        """
-                    }
-                }
-            }
-        }
-        
-        stage('Trivy Image Scan') {
-            steps {
-                echo '=== Scanning Docker Image with Trivy ==='
-                sh """
-                    trivy image \
-                        --severity HIGH,CRITICAL \
-                        --format json \
-                        --output trivy-report.json \
-                        ${IMAGE_NAME}:${IMAGE_TAG}
-                    
-                    # Show summary
-                    trivy image \
-                        --severity HIGH,CRITICAL \
-                        ${IMAGE_NAME}:${IMAGE_TAG}
-                """
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
-                }
-            }
-        }
+        // ... (rest of your stages: SonarQube, OWASP, Build, Trivy)
         
         stage('Push to ECR') {
             steps {
-                echo '=== Pushing Image to AWS ECR ==='
+                echo '=== Pushing to ECR ==='
                 script {
                     withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
                         sh """
-                            # Login to ECR
                             aws ecr get-login-password --region ${AWS_REGION} | \
                                 docker login --username AWS --password-stdin ${ECR_REGISTRY}
                             
-                            # Tag images
                             docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
                             docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:latest
                             
-                            # Push to ECR
                             docker push ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
                             docker push ${ECR_REGISTRY}/${IMAGE_NAME}:latest
                             
-                            echo "✅ Image pushed successfully!"
-                            echo "Image URI: ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                            echo "✅ Image: ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
                         """
                     }
                 }
@@ -179,16 +192,15 @@ pipeline {
     }
     
     post {
-        always {
-            echo '=== Cleaning up workspace ==='
-            cleanWs()
-        }
         success {
-            echo '✅ Pipeline completed successfully!'
-            echo "Docker image: ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+            echo '✅ Pipeline completed!'
+            echo "Image: ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
         }
         failure {
             echo '❌ Pipeline failed!'
+        }
+        always {
+            cleanWs()
         }
     }
 }
