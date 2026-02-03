@@ -3,8 +3,8 @@ pipeline {
     
     environment {
         AWS_REGION = 'us-east-1'
-        ECR_REGISTRY = 'your-account-id.dkr.ecr.us-east-1.amazonaws.com'
-        IMAGE_NAME = 'gig-router-backend'
+        ECR_REGISTRY = '517757113300.dkr.ecr.us-east-1.amazonaws.com/backend-app'
+        IMAGE_NAME = 'backend-app'
         IMAGE_TAG = "${env.BUILD_NUMBER}"
     }
     
