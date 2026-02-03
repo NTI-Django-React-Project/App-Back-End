@@ -1,0 +1,21 @@
+# Environment
+.env
+.env.local
+*.env
+!.env.example
+
+# Logs
+logs/
+*.log
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+test-results/
+
+# CI/CD artifacts
+owasp-reports/
+trivy-reports/
+trivy-report.json
