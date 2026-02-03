@@ -4,9 +4,9 @@ pipeline {
     environment {
         // AWS Configuration
         AWS_REGION = 'us-east-1'
-        AWS_ACCOUNT_ID = credentials('aws-account-id')
+        AWS_ACCOUNT_ID = credentials('aws-credentials')
         ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-        ECR_REPO_NAME = 'django-backend'
+        ECR_REPO_NAME = 'backend-app'
         
         // Application
         APP_NAME = 'django-backend'
@@ -16,12 +16,12 @@ pipeline {
         GIT_COMMIT_SHORT = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
         
         // SonarQube
-        SONAR_HOST_URL = credentials('sonar-host-url')
-        SONAR_TOKEN = credentials('sonar-token')
+        SONAR_HOST_URL = credentials('192.168.10.128:9000')
+        SONAR_TOKEN = credentials('sonar')
         
         // Nexus
-        NEXUS_URL = credentials('nexus-url')
-        NEXUS_CREDENTIALS = credentials('nexus-credentials')
+        NEXUS_URL = credentials('192.168.10.128:8081')
+        NEXUS_CREDENTIALS = credentials('nexus-maven-creds')
         
         // Python
         PYTHON_VERSION = '3.11'
