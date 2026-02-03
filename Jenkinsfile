@@ -9,21 +9,84 @@ pipeline {
         IMAGE_TAG = "${env.BUILD_NUMBER}"
         
         // RDS Configuration
-        RDS_DB_NAME = 'database-1'
+        RDS_SECRET_ARN = 'arn:aws:secretsmanager:us-east-1:517757113300:secret:rdsdb-ddb17298-ba46-433c-9bd2-bace0ff67ad0-HTNMRY'
+        RDS_DB_NAME = 'gig_router_test'
         RDS_PORT = '5432'
+        
+        // Python
+        PYTHON_VERSION = '3.11'
+    }
+    
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        timestamps()
+        timeout(time: 1, unit: 'HOURS')
+        disableConcurrentBuilds()
     }
     
     stages {
-        stage('Checkout') {
+        stage('Cleanup Workspace') {
             steps {
-                echo '=== 📥 Checking out code from GitHub ==='
-                checkout scm
+                echo '=== 🧹 Cleaning workspace ==='
+                cleanWs()
             }
         }
         
-        stage('Build Dependencies') {
+        stage('Checkout Code') {
             steps {
-                echo '=== 📦 Installing Python dependencies ==='
+                echo '=== 📥 Checking out code from GitHub ==='
+                checkout scm
+                script {
+                    env.GIT_COMMIT_SHORT = sh(
+                        returnStdout: true,
+                        script: 'git rev-parse --short HEAD'
+                    ).trim()
+                    
+                    echo "Branch: ${env.GIT_BRANCH}"
+                    echo "Commit: ${env.GIT_COMMIT}"
+                    echo "Short Commit: ${env.GIT_COMMIT_SHORT}"
+                }
+            }
+        }
+        
+        stage('Get RDS Credentials') {
+            steps {
+                echo '=== 🔐 Retrieving RDS credentials from AWS Secrets Manager ==='
+                script {
+                    withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
+                        def secretJson = sh(
+                            returnStdout: true,
+                            script: """
+                                aws secretsmanager get-secret-value \
+                                    --secret-id '${RDS_SECRET_ARN}' \
+                                    --region ${AWS_REGION} \
+                                    --query SecretString \
+                                    --output text
+                            """
+                        ).trim()
+                        
+                        def secret = readJSON text: secretJson
+                        
+                        env.DB_HOST = secret.host
+                        env.DB_PORT = secret.port ?: '5432'
+                        env.DB_NAME = RDS_DB_NAME
+                        env.DB_USER = secret.username
+                        env.DB_PASSWORD = secret.password
+                        env.DB_ENGINE = 'django.db.backends.postgresql'
+                        
+                        echo "✅ RDS Configuration loaded:"
+                        echo "   Host: ${env.DB_HOST}"
+                        echo "   Port: ${env.DB_PORT}"
+                        echo "   Database: ${env.DB_NAME}"
+                        echo "   User: ${env.DB_USER}"
+                    }
+                }
+            }
+        }
+        
+        stage('Setup Python Environment') {
+            steps {
+                echo '=== 🐍 Setting up Python virtual environment ==='
                 dir('backend') {
                     sh '''
                         python3 --version
@@ -37,144 +100,143 @@ pipeline {
             }
         }
         
+        stage('Test RDS Connection') {
+            steps {
+                echo '=== ���� Testing RDS database connection ==='
+                dir('backend') {
+                    sh '''
+                        . venv/bin/activate
+                        
+                        cat > test_db_connection.py << 'PYEOF'
+import os
+import sys
+import psycopg2
+
+try:
+    conn = psycopg2.connect(
+        host=os.environ['DB_HOST'],
+        port=os.environ.get('DB_PORT', '5432'),
+        database='postgres',
+        user=os.environ['DB_USER'],
+        password=os.environ['DB_PASSWORD']
+    )
+    cursor = conn.cursor()
+    cursor.execute('SELECT version();')
+    version = cursor.fetchone()
+    print(f"✅ Successfully connected to PostgreSQL!")
+    print(f"Database version: {version[0]}")
+    cursor.close()
+    conn.close()
+    sys.exit(0)
+except Exception as e:
+    print(f"❌ Failed to connect to database: {str(e)}")
+    sys.exit(1)
+PYEOF
+                        
+                        python test_db_connection.py
+                    '''
+                }
+            }
+        }
+        
         stage('Setup Test Database') {
             steps {
                 echo '=== 🗄️ Setting up test database in RDS ==='
                 dir('backend') {
-                    withCredentials([
-                        string(credentialsId: 'rds-host', variable: 'RDS_HOST'),
-                        string(credentialsId: 'rds-username', variable: 'RDS_USERNAME'),
-                        string(credentialsId: 'rds-password', variable: 'RDS_PASSWORD')
-                    ]) {
-                        sh '''
-                            # Set password for psql
-                            export PGPASSWORD="${RDS_PASSWORD}"
-                            
-                            # Check if database exists, create if not
-                            echo "Checking if database exists..."
-                            DB_EXISTS=$(psql -h "${RDS_HOST}" \
-                                 -U "${RDS_USERNAME}" \
-                                 -d postgres \
-                                 -tAc "SELECT 1 FROM pg_database WHERE datname = '${RDS_DB_NAME}'" || echo "0")
-                            
-                            if [ "$DB_EXISTS" != "1" ]; then
-                                echo "Creating database ${RDS_DB_NAME}..."
-                                psql -h "${RDS_HOST}" \
-                                     -U "${RDS_USERNAME}" \
-                                     -d postgres \
-                                     -c "CREATE DATABASE ${RDS_DB_NAME};"
-                                echo "✅ Database created"
-                            else
-                                echo "✅ Database already exists"
-                            fi
-                        '''
-                    }
+                    sh '''
+                        . venv/bin/activate
+                        export PGPASSWORD="${DB_PASSWORD}"
+                        
+                        echo "Checking if database exists..."
+                        DB_EXISTS=$(psql -h "${DB_HOST}" -U "${DB_USER}" -d postgres \
+                            -tAc "SELECT 1 FROM pg_database WHERE datname = '${DB_NAME}'" || echo "0")
+                        
+                        if [ "$DB_EXISTS" != "1" ]; then
+                            echo "Creating database ${DB_NAME}..."
+                            psql -h "${DB_HOST}" -U "${DB_USER}" -d postgres \
+                                -c "CREATE DATABASE ${DB_NAME};"
+                            echo "✅ Database created"
+                        else
+                            echo "✅ Database already exists"
+                        fi
+                    '''
                 }
             }
         }
         
         stage('Run Migrations') {
             steps {
-                echo '=== 🔄 Running database migrations on RDS ==='
+                echo '=== 🔄 Running Django database migrations ==='
                 dir('backend') {
-                    withCredentials([
-                        string(credentialsId: 'rds-host', variable: 'RDS_HOST'),
-                        string(credentialsId: 'rds-username', variable: 'RDS_USERNAME'),
-                        string(credentialsId: 'rds-password', variable: 'RDS_PASSWORD')
-                    ]) {
-                        sh '''
-                            . venv/bin/activate
-                            
-                            # Set Django environment variables
-                            export DJANGO_SETTINGS_MODULE=gig_router.settings
-                            export SECRET_KEY=test-secret-key-for-ci-${BUILD_NUMBER}
-                            export DEBUG=False
-                            export ALLOWED_HOSTS=localhost,127.0.0.1
-                            
-                            # RDS Database configuration
-                            export DB_ENGINE=django.db.backends.postgresql
-                            export DB_NAME=${RDS_DB_NAME}
-                            export DB_USER=${RDS_USERNAME}
-                            export DB_PASSWORD=${RDS_PASSWORD}
-                            export DB_HOST=${RDS_HOST}
-                            export DB_PORT=${RDS_PORT}
-                            
-                            # Additional required settings
-                            export REDIS_URL=redis://localhost:6379/0
-                            export OPENAI_API_KEY=test-key-placeholder
-                            
-                            # Run migrations
-                            echo "Running migrations..."
-                            python manage.py migrate --noinput
-                            
-                            echo "✅ Migrations completed successfully"
-                        '''
-                    }
+                    sh '''
+                        . venv/bin/activate
+                        
+                        export DJANGO_SETTINGS_MODULE=gig_router.settings
+                        export SECRET_KEY=jenkins-ci-test-key-${BUILD_NUMBER}
+                        export DEBUG=False
+                        export ALLOWED_HOSTS=localhost,127.0.0.1
+                        export DB_ENGINE=${DB_ENGINE}
+                        export DB_NAME=${DB_NAME}
+                        export DB_USER=${DB_USER}
+                        export DB_PASSWORD=${DB_PASSWORD}
+                        export DB_HOST=${DB_HOST}
+                        export DB_PORT=${DB_PORT}
+                        export REDIS_URL=redis://localhost:6379/0
+                        export OPENAI_API_KEY=test-key
+                        
+                        echo "Checking migrations..."
+                        python manage.py showmigrations
+                        
+                        echo "Running migrations..."
+                        python manage.py migrate --noinput
+                        
+                        echo "✅ Migrations completed successfully"
+                    '''
                 }
             }
         }
         
         stage('Run Tests') {
             steps {
-                echo '=== 🧪 Running Tests with RDS Database ==='
+                echo '=== 🧪 Running tests with RDS database ==='
                 dir('backend') {
-                    withCredentials([
-                        string(credentialsId: 'rds-host', variable: 'RDS_HOST'),
-                        string(credentialsId: 'rds-username', variable: 'RDS_USERNAME'),
-                        string(credentialsId: 'rds-password', variable: 'RDS_PASSWORD')
-                    ]) {
-                        sh '''
-                            . venv/bin/activate
-                            
-                            # Django settings
-                            export DJANGO_SETTINGS_MODULE=gig_router.settings
-                            export SECRET_KEY=test-secret-key-for-ci-${BUILD_NUMBER}
-                            export DEBUG=False
-                            export ALLOWED_HOSTS=localhost,127.0.0.1
-                            
-                            # RDS Database configuration
-                            export DB_ENGINE=django.db.backends.postgresql
-                            export DB_NAME=${RDS_DB_NAME}
-                            export DB_USER=${RDS_USERNAME}
-                            export DB_PASSWORD=${RDS_PASSWORD}
-                            export DB_HOST=${RDS_HOST}
-                            export DB_PORT=${RDS_PORT}
-                            
-                            # Additional settings
-                            export REDIS_URL=redis://localhost:6379/0
-                            export OPENAI_API_KEY=test-key-placeholder
-                            
-                            # Create test results directory
-                            mkdir -p test-results
-                            
-                            # Run tests with coverage
-                            echo "Running pytest..."
-                            pytest -v \
-                                   --junitxml=test-results/pytest-report.xml \
-                                   --cov=. \
-                                   --cov-report=xml \
-                                   --cov-report=html \
-                                   --cov-report=term-missing
-                            
-                            echo "✅ Tests completed successfully"
-                        '''
-                    }
+                    sh '''
+                        . venv/bin/activate
+                        
+                        export DJANGO_SETTINGS_MODULE=gig_router.settings
+                        export SECRET_KEY=jenkins-ci-test-key-${BUILD_NUMBER}
+                        export DEBUG=False
+                        export ALLOWED_HOSTS=localhost
+                        export DB_ENGINE=${DB_ENGINE}
+                        export DB_NAME=${DB_NAME}
+                        export DB_USER=${DB_USER}
+                        export DB_PASSWORD=${DB_PASSWORD}
+                        export DB_HOST=${DB_HOST}
+                        export DB_PORT=${DB_PORT}
+                        export REDIS_URL=redis://localhost:6379/0
+                        export OPENAI_API_KEY=test-key
+                        
+                        mkdir -p test-results
+                        
+                        pytest -v \
+                            --junitxml=test-results/junit.xml \
+                            --cov=. \
+                            --cov-report=xml \
+                            --cov-report=html \
+                            --cov-report=term-missing
+                    '''
                 }
             }
             post {
                 always {
-                    // Publish test results
-                    junit 'backend/test-results/pytest-report.xml'
-                    
-                    // Publish coverage report
+                    junit 'backend/test-results/junit.xml'
                     publishHTML([
-                        allowMissing: false,
+                        allowMissing: true,
                         alwaysLinkToLastBuild: true,
                         keepAll: true,
                         reportDir: 'backend/htmlcov',
                         reportFiles: 'index.html',
-                        reportName: 'Coverage Report',
-                        reportTitles: 'Code Coverage'
+                        reportName: 'Coverage Report'
                     ])
                 }
             }
@@ -182,53 +244,41 @@ pipeline {
         
         stage('Cleanup Test Data') {
             steps {
-                echo '=== 🧹 Cleaning up test data from RDS ==='
+                echo '=== 🧹 Cleaning up test data ==='
                 dir('backend') {
-                    withCredentials([
-                        string(credentialsId: 'rds-host', variable: 'RDS_HOST'),
-                        string(credentialsId: 'rds-username', variable: 'RDS_USERNAME'),
-                        string(credentialsId: 'rds-password', variable: 'RDS_PASSWORD')
-                    ]) {
-                        sh '''
-                            . venv/bin/activate
-                            
-                            # Set Django environment
-                            export DJANGO_SETTINGS_MODULE=gig_router.settings
-                            export SECRET_KEY=test-secret-key-for-ci-${BUILD_NUMBER}
-                            export DB_ENGINE=django.db.backends.postgresql
-                            export DB_NAME=${RDS_DB_NAME}
-                            export DB_USER=${RDS_USERNAME}
-                            export DB_PASSWORD=${RDS_PASSWORD}
-                            export DB_HOST=${RDS_HOST}
-                            export DB_PORT=${RDS_PORT}
-                            
-                            # Flush test database (delete all data)
-                            echo "Flushing test database..."
-                            python manage.py flush --noinput
-                            
-                            echo "✅ Test data cleaned successfully"
-                        '''
-                    }
+                    sh '''
+                        . venv/bin/activate
+                        
+                        export DJANGO_SETTINGS_MODULE=gig_router.settings
+                        export SECRET_KEY=jenkins-ci-test-key-${BUILD_NUMBER}
+                        export DB_ENGINE=${DB_ENGINE}
+                        export DB_NAME=${DB_NAME}
+                        export DB_USER=${DB_USER}
+                        export DB_PASSWORD=${DB_PASSWORD}
+                        export DB_HOST=${DB_HOST}
+                        export DB_PORT=${DB_PORT}
+                        
+                        python manage.py flush --noinput
+                        echo "✅ Test data cleaned"
+                    '''
                 }
             }
         }
         
         stage('SonarQube Analysis') {
             steps {
-                echo '=== 📊 Running SonarQube Code Quality Analysis ==='
+                echo '=== 📊 Running SonarQube analysis ==='
                 dir('backend') {
-                    script {
-                        withSonarQubeEnv('SonarQube') {
-                            sh '''
-                                sonar-scanner \
-                                    -Dsonar.projectKey=gig-router-backend \
-                                    -Dsonar.projectName="Gig Router Backend" \
-                                    -Dsonar.sources=. \
-                                    -Dsonar.exclusions=**/migrations/**,**/tests.py,**/tests/**,**/static/**,**/venv/**,**/__pycache__/** \
-                                    -Dsonar.python.coverage.reportPaths=coverage.xml \
-                                    -Dsonar.python.version=3.11
-                            '''
-                        }
+                    withSonarQubeEnv('SonarQube') {
+                        sh '''
+                            sonar-scanner \
+                                -Dsonar.projectKey=gig-router-backend \
+                                -Dsonar.projectName="Gig Router Backend" \
+                                -Dsonar.sources=. \
+                                -Dsonar.exclusions=**/migrations/**,**/tests.py,**/tests/**,**/venv/**,**/__pycache__/** \
+                                -Dsonar.python.coverage.reportPaths=coverage.xml \
+                                -Dsonar.python.version=3.11
+                        '''
                     }
                 }
             }
@@ -241,7 +291,7 @@ pipeline {
                     script {
                         def qg = waitForQualityGate()
                         if (qg.status != 'OK') {
-                            error "❌ Pipeline aborted due to quality gate failure: ${qg.status}"
+                            error "❌ Quality gate failure: ${qg.status}"
                         }
                         echo "✅ Quality Gate passed"
                     }
@@ -251,14 +301,13 @@ pipeline {
         
         stage('OWASP Dependency Check') {
             steps {
-                echo '=== 🔒 Running OWASP Dependency Security Check ==='
+                echo '=== 🔒 Running OWASP Dependency Check ==='
                 dependencyCheck additionalArguments: '''
                     --scan backend/
-                    --format XML 
+                    --format XML
                     --format HTML
                     --project gig-router-backend
                     --failOnCVSS 8
-                    --suppression backend/dependency-check-suppression.xml
                 ''', odcInstallation: 'OWASP-DC'
             }
             post {
@@ -270,73 +319,57 @@ pipeline {
         
         stage('Build Docker Image') {
             steps {
-                echo '=== 🐳 Building Docker Image ==='
+                echo '=== 🐳 Building Docker image ==='
                 dir('backend') {
-                    script {
-                        sh """
-                            echo "Building image: ${IMAGE_NAME}:${IMAGE_TAG}"
-                            
-                            docker build \
-                                --build-arg BUILD_DATE=\$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
-                                --build-arg VCS_REF=\$(git rev-parse --short HEAD) \
-                                --build-arg BUILD_VERSION=${IMAGE_TAG} \
-                                -t ${IMAGE_NAME}:${IMAGE_TAG} \
-                                -t ${IMAGE_NAME}:latest \
-                                .
-                            
-                            echo "✅ Docker image built successfully"
-                            docker images | grep ${IMAGE_NAME}
-                        """
-                    }
+                    sh """
+                        chmod +x entrypoint.sh
+                        
+                        docker build \
+                            -t ${IMAGE_NAME}:${IMAGE_TAG} \
+                            -t ${IMAGE_NAME}:${env.GIT_COMMIT_SHORT} \
+                            -t ${IMAGE_NAME}:latest \
+                            --build-arg BUILD_DATE=\$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+                            --build-arg VCS_REF=${env.GIT_COMMIT_SHORT} \
+                            --build-arg VERSION=${IMAGE_TAG} \
+                            .
+                        
+                        echo "✅ Docker image built successfully"
+                        docker images | grep ${IMAGE_NAME}
+                    """
                 }
             }
         }
         
         stage('Trivy Image Scan') {
             steps {
-                echo '=== 🔍 Scanning Docker Image with Trivy ==='
-                script {
-                    sh """
-                        echo "Scanning image: ${IMAGE_NAME}:${IMAGE_TAG}"
-                        
-                        # Run Trivy scan
-                        trivy image \
-                            --severity HIGH,CRITICAL \
-                            --format json \
-                            --output trivy-report.json \
-                            ${IMAGE_NAME}:${IMAGE_TAG}
-                        
-                        # Display summary
-                        echo "=== Trivy Scan Summary ==="
-                        trivy image \
-                            --severity HIGH,CRITICAL \
-                            --format table \
-                            ${IMAGE_NAME}:${IMAGE_TAG}
-                        
-                        # Check for critical vulnerabilities
-                        CRITICAL_COUNT=\$(jq '[.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")] | length' trivy-report.json)
-                        echo "Critical vulnerabilities found: \$CRITICAL_COUNT"
-                        
-                        if [ "\$CRITICAL_COUNT" -gt "0" ]; then
-                            echo "⚠️ Warning: \$CRITICAL_COUNT critical vulnerabilities found"
-                            # Uncomment to fail on critical vulnerabilities:
-                            # exit 1
-                        fi
-                        
-                        echo "✅ Image scan completed"
-                    """
-                }
+                echo '=== 🔍 Scanning Docker image with Trivy ==='
+                sh """
+                    mkdir -p trivy-reports
+                    
+                    trivy image \
+                        --severity HIGH,CRITICAL \
+                        --format json \
+                        --output trivy-reports/trivy-report.json \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
+                    
+                    trivy image \
+                        --severity HIGH,CRITICAL \
+                        --format table \
+                        ${IMAGE_NAME}:${IMAGE_TAG}
+                    
+                    echo "✅ Image scan completed"
+                """
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'trivy-report.json', allowEmptyArchive: true
+                    archiveArtifacts artifacts: 'trivy-reports/*', allowEmptyArchive: true
                 }
             }
         }
         
         stage('Push to ECR') {
             steps {
-                echo '=== 📤 Pushing Docker Image to AWS ECR ==='
+                echo '=== 📤 Pushing Docker image to AWS ECR ==='
                 script {
                     withAWS(credentials: 'aws-credentials', region: "${AWS_REGION}") {
                         sh """
@@ -346,10 +379,12 @@ pipeline {
                             
                             echo "Tagging images..."
                             docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                            docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:${env.GIT_COMMIT_SHORT}
                             docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${ECR_REGISTRY}/${IMAGE_NAME}:latest
                             
                             echo "Pushing images to ECR..."
                             docker push ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}
+                            docker push ${ECR_REGISTRY}/${IMAGE_NAME}:${env.GIT_COMMIT_SHORT}
                             docker push ${ECR_REGISTRY}/${IMAGE_NAME}:latest
                             
                             echo "✅ Images pushed successfully!"
@@ -363,81 +398,38 @@ pipeline {
     
     post {
         always {
-            echo '=== 🧹 Cleaning up workspace ==='
-            // Clean up Docker images to save space
+            echo '=== 🧹 Cleaning up Docker images ==='
             sh """
                 docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true
+                docker rmi ${IMAGE_NAME}:${env.GIT_COMMIT_SHORT} || true
                 docker rmi ${IMAGE_NAME}:latest || true
                 docker rmi ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} || true
+                docker rmi ${ECR_REGISTRY}/${IMAGE_NAME}:${env.GIT_COMMIT_SHORT} || true
                 docker rmi ${ECR_REGISTRY}/${IMAGE_NAME}:latest || true
             """
-            cleanWs()
         }
         
         success {
-            echo '✅ ========================================='
+            echo '✅ =========================================='
             echo '✅ Pipeline completed successfully!'
-            echo '✅ ========================================='
-            echo "📦 Docker Image: ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-            echo "🏷️  Build Number: ${BUILD_NUMBER}"
-            echo "🌿 Git Branch: ${env.GIT_BRANCH}"
-            echo "📝 Git Commit: ${env.GIT_COMMIT}"
-            echo '✅ ========================================='
-            
-            // Optional: Send success notification
-            // emailext(
-            //     subject: "✅ Jenkins Build Success: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-            //     body: "Build succeeded!\n\nImage: ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}",
-            //     to: "team@example.com"
-            // )
+            echo '✅ =========================================='
+            echo "✅ Build Number: ${BUILD_NUMBER}"
+            echo "✅ Git Commit: ${env.GIT_COMMIT_SHORT}"
+            echo "✅ Docker Image: ${ECR_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+            echo "✅ RDS Database: ${env.DB_HOST}"
+            echo '✅ =========================================='
         }
         
         failure {
-            echo '❌ ========================================='
+            echo '❌ =========================================='
             echo '❌ Pipeline failed!'
-            echo '❌ ========================================='
-            echo "🔍 Check logs above for error details"
-            echo "🏷️  Failed Build: ${BUILD_NUMBER}"
-            echo '❌ ========================================='
-            
-            // Optional: Cleanup test database on failure
-            script {
-                try {
-                    dir('backend') {
-                        withCredentials([
-                            string(credentialsId: 'rds-host', variable: 'RDS_HOST'),
-                            string(credentialsId: 'rds-username', variable: 'RDS_USERNAME'),
-                            string(credentialsId: 'rds-password', variable: 'RDS_PASSWORD')
-                        ]) {
-                            sh '''
-                                . venv/bin/activate || true
-                                export DJANGO_SETTINGS_MODULE=gig_router.settings
-                                export SECRET_KEY=test-secret-key-for-ci-${BUILD_NUMBER}
-                                export DB_ENGINE=django.db.backends.postgresql
-                                export DB_NAME=${RDS_DB_NAME}
-                                export DB_USER=${RDS_USERNAME}
-                                export DB_PASSWORD=${RDS_PASSWORD}
-                                export DB_HOST=${RDS_HOST}
-                                export DB_PORT=${RDS_PORT}
-                                python manage.py flush --noinput || true
-                            '''
-                        }
-                    }
-                } catch (Exception e) {
-                    echo "⚠️ Warning: Could not clean up test database: ${e.message}"
-                }
-            }
-            
-            // Optional: Send failure notification
-            // emailext(
-            //     subject: "❌ Jenkins Build Failed: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-            //     body: "Build failed. Check console output for details.",
-            //     to: "team@example.com"
-            // )
+            echo '❌ =========================================='
+            echo '❌ Check the logs above for errors'
+            echo '❌ =========================================='
         }
         
-        unstable {
-            echo '⚠️ Pipeline completed with warnings'
+        cleanup {
+            cleanWs()
         }
     }
 }
