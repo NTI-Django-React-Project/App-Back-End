@@ -8,7 +8,7 @@ pipeline {
         IMAGE_TAG = "${env.BUILD_NUMBER}"
         
         // RDS Configuration
-        RDS_DB_NAME = 'gig_router_test'
+        RDS_DB_NAME = 'database-1'
         RDS_PORT = '5432'
         RDS_USERNAME = 'postgres'  // ← CHANGED from 'admin' to 'postgres'
     }
