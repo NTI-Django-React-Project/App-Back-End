@@ -16,7 +16,6 @@ pipeline {
         IMAGE_TAG = "${BUILD_NUMBER}"
         PYTHONPATH = 'backend'
         
-        # From your settings.py - this is the correct Django settings module
         DJANGO_SETTINGS_MODULE = 'gig_router.settings'
         
         # Additional Django settings for testing
