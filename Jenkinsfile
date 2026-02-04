@@ -51,7 +51,6 @@ pipeline {
                   postgres:15
 
                 echo "Waiting for Postgres to be ready..."
-                # Wait for PostgreSQL to start accepting connections
                 for i in {1..30}; do
                   if docker exec ci-postgres pg_isready -U ${DB_USER} 2>/dev/null; then
                     echo "PostgreSQL is ready!"
@@ -61,7 +60,6 @@ pipeline {
                   sleep 2
                 done
                 
-                # Additional wait to ensure PostgreSQL is fully initialized
                 sleep 3
                 '''
             }
@@ -76,9 +74,8 @@ pipeline {
                 pip install --upgrade pip setuptools wheel
                 pip install -r requirements.txt
                 
-                # Install pytest and related packages
                 pip install pytest pytest-django pytest-cov pytest-xdist
-                pip install factory-boy Faker  # For test data generation
+                pip install factory-boy Faker
                 '''
             }
         }
@@ -93,7 +90,6 @@ pipeline {
                 python manage.py makemigrations --noinput || echo "No new migrations to create"
 
                 echo "Applying migrations..."
-                # Apply all migrations
                 python manage.py migrate --noinput
                 
                 echo "Checking applied migrations..."
@@ -118,10 +114,8 @@ pipeline {
                 . venv/bin/activate
                 cd backend
 
-                # Set Django settings module for pytest
                 export DJANGO_SETTINGS_MODULE=gig_router.settings
                 
-                # Run tests with coverage
                 pytest \
                     --ds=gig_router.settings \
                     --cov=. \
@@ -136,16 +130,21 @@ pipeline {
             }
             post {
                 always {
-                    // Archive test results
                     junit 'backend/junit-results.xml'
                     
-                    // Archive coverage report
-                    publishHTML([
-                        reportDir: 'backend/htmlcov',
-                        reportFiles: 'index.html',
-                        reportName: 'Coverage Report',
-                        keepAll: true
-                    ])
+                    // Archive coverage report HTML
+                    script {
+                        publishHTML(
+                            target: [
+                                reportDir: 'backend/htmlcov',
+                                reportFiles: 'index.html',
+                                reportName: 'Coverage Report',
+                                alwaysLinkToLastBuild: true,
+                                keepAll: true,
+                                allowMissing: false
+                            ]
+                        )
+                    }
                 }
             }
         }
@@ -188,7 +187,6 @@ pipeline {
         stage('Security Scan (Trivy)') {
             steps {
                 sh '''
-                # Scan the Docker image for vulnerabilities
                 trivy image --severity HIGH,CRITICAL --exit-code 0 ${APP_NAME}:${IMAGE_TAG}
                 '''
             }
@@ -199,36 +197,38 @@ pipeline {
                 branch 'main'
             }
             steps {
-                withCredentials([
-                    awsCredentials(
-                        credentialsId: 'aws-credentials',
-                        accessKeyVariable: 'AWS_ACCESS_KEY_ID',
-                        secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
-                    )
-                ]) {
-                    sh '''
-                    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+                script {
+                    withCredentials([
+                        awsCredentials(
+                            credentialsId: 'aws-credentials',
+                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        )
+                    ]) {
+                        sh '''
+                        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 
-                    aws ecr get-login-password --region ${AWS_REGION} | \
-                      docker login --username AWS --password-stdin \
-                      ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+                        aws ecr get-login-password --region ${AWS_REGION} | \
+                          docker login --username AWS --password-stdin \
+                          ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
-                    # Create repository if it doesn't exist
-                    aws ecr describe-repositories --repository-names ${ECR_REPO} || \
-                      aws ecr create-repository --repository-name ${ECR_REPO}
+                        # Create repository if it doesn't exist
+                        aws ecr describe-repositories --repository-names ${ECR_REPO} 2>/dev/null || \
+                          aws ecr create-repository --repository-name ${ECR_REPO}
 
-                    docker tag ${APP_NAME}:${IMAGE_TAG} \
-                      ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
-                    
-                    docker tag ${APP_NAME}:${IMAGE_TAG} \
-                      ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
+                        docker tag ${APP_NAME}:${IMAGE_TAG} \
+                          ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
+                        
+                        docker tag ${APP_NAME}:${IMAGE_TAG} \
+                          ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
 
-                    docker push \
-                      ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
-                    
-                    docker push \
-                      ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
-                    '''
+                        docker push \
+                          ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
+                        
+                        docker push \
+                          ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
+                        '''
+                    }
                 }
             }
         }
@@ -252,18 +252,10 @@ pipeline {
         
         success {
             echo "✅ CI pipeline completed successfully!"
-            // Optional: Send success notification
         }
         
         failure {
             echo "❌ CI pipeline failed"
-            // Optional: Send failure notification
-            emailext(
-                subject: "FAILED: Job '${env.JOB_NAME}' (${env.BUILD_NUMBER})",
-                body: """Check console output at ${env.BUILD_URL}""",
-                to: 'devops@example.com',
-                attachLog: true
-            )
         }
         
         unstable {
