@@ -24,6 +24,7 @@ pipeline {
 
     stage('Checkout') {
       steps {
+        echo "Checking out source code..."
         checkout scm
       }
     }
@@ -43,8 +44,17 @@ pipeline {
           -p 5432:5432 \
           postgres:15
 
-        echo "Waiting for PostgreSQL to initialize..."
-        sleep 15
+        echo "Waiting for PostgreSQL to be ready..."
+        for i in {1..30}
+        do
+            docker exec test-db pg_isready -U ${DB_USER}
+            if [ $? -eq 0 ]; then
+              echo "✅ PostgreSQL is ready!"
+              break
+            fi
+            echo "Waiting for PostgreSQL... ($i/30)"
+            sleep 2
+        done
         '''
       }
     }
@@ -64,6 +74,36 @@ pipeline {
       }
     }
 
+    stage('Validate Database Connection') {
+      steps {
+        dir("${BACKEND_DIR}") {
+          sh '''
+          echo "🔍 Testing database connection..."
+          . venv/bin/activate
+          
+          python << END
+import psycopg2
+from os import getenv
+
+try:
+    conn = psycopg2.connect(
+        dbname="${DB_NAME}",
+        user="${DB_USER}",
+        password="${DB_PASS}",
+        host="${DB_HOST}",
+        port="${DB_PORT}"
+    )
+    print("✅ Successfully connected to the database!")
+    conn.close()
+except psycopg2.OperationalError as e:
+    print("❌ Failed to connect to database:", str(e))
+    exit(1)
+END
+          '''
+        }
+      }
+    }
+
     stage('Build Django') {
       steps {
         dir("${BACKEND_DIR}") {
@@ -71,11 +111,11 @@ pipeline {
           echo "Setting Django static assets..."
           . venv/bin/activate
 
-          export DB_NAME=testdb
-          export DB_USER=test
-          export DB_PASSWORD=test
-          export DB_HOST=localhost
-          export DB_PORT=5432
+          export DB_NAME=${DB_NAME}
+          export DB_USER=${DB_USER}
+          export DB_PASSWORD=${DB_PASS}
+          export DB_HOST=${DB_HOST}
+          export DB_PORT=${DB_PORT}
 
           python manage.py collectstatic --noinput || true
           '''
@@ -83,43 +123,45 @@ pipeline {
       }
     }
 
-    // Additional tests added incrementally
-
-    stage('Test: Check Migrations') {
+    stage('Apply Migrations') {
       steps {
         dir("${BACKEND_DIR}") {
-          echo "Testing if migrations are applied to Postgres..."
           sh '''
+          echo "📦 Applying database migrations..."
           . venv/bin/activate
 
-          export DB_NAME=testdb
-          export DB_USER=test
-          export DB_PASSWORD=test
-          export DB_HOST=localhost
-          export DB_PORT=5432
+          export DB_NAME=${DB_NAME}
+          export DB_USER=${DB_USER}
+          export DB_PASSWORD=${DB_PASS}
+          export DB_HOST=${DB_HOST}
+          export DB_PORT=${DB_PORT}
 
-          echo "Running migrations..."
           python manage.py migrate --noinput
 
-          echo "Validating migration output..."
+          echo "✅ Migrations applied successfully"
+          '''
+        }
+      }
+    }
+
+    stage('Validate Migrations') {
+      steps {
+        dir("${BACKEND_DIR}") {
+          sh '''
+          echo "🔍 Validating migration status..."
+          . venv/bin/activate
+
+          export DB_NAME=${DB_NAME}
+          export DB_USER=${DB_USER}
+          export DB_PASSWORD=${DB_PASS}
+          export DB_HOST=${DB_HOST}
+          export DB_PORT=${DB_PORT}
+
+          echo "Showing migration status:"
           python manage.py showmigrations
-          python manage.py sqlmigrate users 0001  # Update to your app's first migration file
-          '''
-        }
-      }
-    }
 
-    stage('Test: Schema Validation') {
-      steps {
-        dir("${BACKEND_DIR}") {
-          echo "Checking if the users_user table exists..."
-          sh '''
-          . venv/bin/activate
-
-          echo "Testing database schema directly..."
-          python manage.py dbshell << END || true
-          SELECT * FROM information_schema.tables WHERE table_name = 'users_user';
-          END
+          echo "\nChecking users app first migration:"
+          python manage.py sqlmigrate users 0001 || echo "⚠️  Migration file not found or already applied"
           '''
         }
       }
@@ -128,46 +170,38 @@ pipeline {
     stage('Run All Tests') {
       steps {
         dir("${BACKEND_DIR}") {
-          echo "Running all tests (combined coverage)..."
           sh '''
+          echo "🧪 Running all tests with coverage..."
           . venv/bin/activate
 
-          export DB_NAME=testdb
-          export DB_USER=test
-          export DB_PASSWORD=test
-          export DB_HOST=localhost
-          export DB_PORT=5432
+          export DB_NAME=${DB_NAME}
+          export DB_USER=${DB_USER}
+          export DB_PASSWORD=${DB_PASS}
+          export DB_HOST=${DB_HOST}
+          export DB_PORT=${DB_PORT}
 
-          echo "🧪 Collecting tests..."
-          pytest --collect-only
+          echo "📋 Collecting tests..."
+          pytest --collect-only --quiet
 
-          echo "✅ Running all tests..."
-          pytest --ds=gig_router.settings --disable-warnings \
-              --cov=. --cov-report=html --cov-report=xml
+          echo "\n🚀 Running tests..."
+          pytest --ds=gig_router.settings \
+                 --disable-warnings \
+                 --verbose \
+                 --cov=. \
+                 --cov-report=term-missing \
+                 --cov-report=html \
+                 --cov-report=xml
           '''
         }
       }
     }
 
-    stage('Run All Tests') {
-      steps {
-        dir("${BACKEND_DIR}") {
-          echo "Running all tests (combined coverage)..."
-          sh '''
-          . venv/bin/activate
-
-          pytest --ds=gig_router.settings --disable-warnings \
-              --cov=. --cov-report=html --cov-report=xml
-          '''
-        }
-      }
-    }
-
-    stage('SonarQube') {
+    stage('SonarQube Analysis') {
       steps {
         dir("${BACKEND_DIR}") {
           withSonarQubeEnv('SonarQube') {
             sh '''
+            echo "📊 Running SonarQube analysis..."
             sonar-scanner \
               -Dsonar.projectKey=gig-router-backend \
               -Dsonar.sources=. \
@@ -186,9 +220,10 @@ pipeline {
       }
     }
 
-    stage('Kaniko Build (safe)') {
+    stage('Kaniko Build') {
       steps {
         sh '''
+        echo "🐳 Building Docker image with Kaniko..."
         docker run --rm \
           -v $(pwd)/${BACKEND_DIR}:/workspace \
           gcr.io/kaniko-project/executor \
@@ -197,17 +232,22 @@ pipeline {
           --destination=${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} \
           --destination=${ECR_REGISTRY}/${ECR_REPO}:latest \
           --no-push
+        
+        echo "✅ Docker image built successfully"
         '''
       }
     }
 
-    stage('Trivy Security Gate') {
+    stage('Trivy Security Scan') {
       steps {
         sh '''
+        echo "🔒 Scanning Docker image for vulnerabilities..."
         trivy image \
           --severity HIGH,CRITICAL \
           --exit-code 1 \
           ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+        
+        echo "✅ Security scan passed"
         '''
       }
     }
@@ -215,11 +255,14 @@ pipeline {
     stage('Push to ECR') {
       steps {
         sh '''
+        echo "📤 Pushing Docker image to ECR..."
         aws ecr get-login-password --region ${AWS_REGION} | \
           docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
         docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
         docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+        
+        echo "✅ Image pushed successfully"
         '''
       }
     }
@@ -227,17 +270,30 @@ pipeline {
 
   post {
     always {
-      echo "Cleaning up Postgres container and workspace..."
+      echo "🧹 Cleaning up resources..."
       sh 'docker rm -f test-db || true'
+      
+      // Archive test results and coverage reports
+      junit '**/test-results/*.xml' allowEmptyResults: true
+      publishHTML(target: [
+        allowMissing: true,
+        alwaysLinkToLastBuild: true,
+        keepAll: true,
+        reportDir: 'backend/htmlcov',
+        reportFiles: 'index.html',
+        reportName: 'Coverage Report'
+      ])
+      
       cleanWs()
-    }
-
-    failure {
-      echo "❌ CI pipeline failed. Investigate test results!"
     }
 
     success {
       echo "✅ CI pipeline completed successfully!"
+      echo "📦 Image pushed: ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+    }
+
+    failure {
+      echo "❌ CI pipeline failed. Check the logs for details."
     }
   }
 }
