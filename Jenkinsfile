@@ -5,7 +5,7 @@ pipeline {
         AWS_REGION = 'us-east-1'
         APP_NAME = 'django-backend'
         ECR_REPO = 'django-backend'
-
+ 	DB_ENGINE = 'django.db.backends.postgresql'
         POSTGRES_DB = 'testdb'
         POSTGRES_USER = 'testuser'
         POSTGRES_PASSWORD = 'testpass'
@@ -59,13 +59,6 @@ pipeline {
                 sh '''
                 . venv/bin/activate
                 cd backend
-
-                export DB_ENGINE=django.db.backends.postgresql
-                export DB_NAME=${POSTGRES_DB}
-                export DB_USER=${POSTGRES_USER}
-                export DB_PASSWORD=${POSTGRES_PASSWORD}
-                export DB_HOST=${POSTGRES_HOST}
-                export DB_PORT=${POSTGRES_PORT}
                 export SECRET_KEY=ci-secret
                 export DEBUG=False
 
