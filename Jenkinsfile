@@ -6,10 +6,11 @@ pipeline {
         APP_NAME = 'django-backend'
         ECR_REPO = 'django-backend'
 
+        // Use the SAME settings as your working docker-compose
         DB_ENGINE = 'django.db.backends.postgresql'
-        DB_NAME = 'testdb'
-        DB_USER = 'testuser'
-        DB_PASSWORD = 'testpass'
+        DB_NAME = 'gig_router_db'
+        DB_USER = 'postgres'
+        DB_PASSWORD = 'postgres123'
         DB_HOST = 'localhost'
         DB_PORT = '5432'
 
@@ -43,13 +44,14 @@ pipeline {
                 sh '''
                 docker rm -f ci-postgres || true
 
+                # Use PostgreSQL 18.1 (same as your docker-compose)
                 docker run -d \
                   --name ci-postgres \
                   -e POSTGRES_DB=${DB_NAME} \
                   -e POSTGRES_USER=${DB_USER} \
                   -e POSTGRES_PASSWORD=${DB_PASSWORD} \
                   -p 5432:5432 \
-                  postgres:15
+                  postgres:18.1
 
                 echo "Waiting for Postgres to be ready..."
                 for i in {1..30}; do
@@ -61,6 +63,7 @@ pipeline {
                   sleep 2
                 done
                 
+                # Give PostgreSQL time to initialize
                 sleep 5
                 '''
             }
@@ -70,48 +73,41 @@ pipeline {
             steps {
                 dir('backend') {
                     sh '''
+                    # Create virtual environment
                     python3 -m venv venv
                     . venv/bin/activate
+                    
+                    # Check Python version
+                    python --version
+                    
+                    # Install dependencies
                     pip install --upgrade pip setuptools wheel
                     pip install -r requirements.txt
                     
-                    # Make sure pytest-django is installed
+                    # Install test dependencies
                     pip install pytest pytest-django pytest-cov
                     '''
                 }
             }
         }
 
-        stage('Create Test Database') {
+        stage('Run Migrations') {
             steps {
                 dir('backend') {
                     sh '''
                     . venv/bin/activate
                     
-                    # Drop and recreate test database
-                    echo "=== Creating fresh test database ==="
-                    PGPASSWORD=${DB_PASSWORD} psql -h ${DB_HOST} -U ${DB_USER} -p ${DB_PORT} -c "DROP DATABASE IF EXISTS test_${DB_NAME};" 2>/dev/null || true
-                    PGPASSWORD=${DB_PASSWORD} psql -h ${DB_HOST} -U ${DB_USER} -p ${DB_PORT} -c "CREATE DATABASE test_${DB_NAME};" || true
+                    echo "=== Running migrations ==="
                     
-                    echo "Test database created: test_${DB_NAME}"
-                    '''
-                }
-            }
-        }
-
-        stage('Run Migrations on Test Database') {
-            steps {
-                dir('backend') {
-                    sh '''
-                    . venv/bin/activate
+                    # Make sure we're using the right database
+                    echo "Using database: ${DB_NAME}"
+                    echo "Using user: ${DB_USER}"
                     
-                    # Run migrations on the test database
-                    echo "=== Running migrations on test database ==="
-                    export DB_NAME=test_${DB_NAME}
+                    # Run migrations
                     python manage.py migrate --noinput
                     
-                    echo "=== Verifying migrations ==="
-                    python manage.py showmigrations --list
+                    echo "=== Checking migrations ==="
+                    python manage.py showmigrations
                     '''
                 }
             }
@@ -125,13 +121,12 @@ pipeline {
                     
                     echo "=== Running tests ==="
                     
-                    # Run tests using the test database
-                    export DB_NAME=test_${DB_NAME}
+                    # Option 1: Use Django's test runner (simpler)
+                    echo "Running Django tests..."
+                    python manage.py test --noinput --parallel=4
                     
-                    # First run a simple test to verify setup
-                    python manage.py test users.tests.UserModelTest.test_user_creation --noinput 2>&1 || echo "Single test completed"
-                    
-                    # Now run all tests with pytest
+                    # Option 2: Run pytest for coverage
+                    echo "Running pytest for coverage..."
                     pytest \
                         --ds=gig_router.settings \
                         --cov=. \
@@ -141,9 +136,7 @@ pipeline {
                         --junitxml=junit-results.xml \
                         --disable-warnings \
                         -v \
-                        --tb=short \
-                        --create-db \
-                        --reuse-db
+                        --tb=short
                     '''
                 }
             }
@@ -177,11 +170,10 @@ pipeline {
                         sh '''
                         sonar-scanner \
                           -Dsonar.projectKey=django-backend \
-                          -Dsonar.sources=. \
-                          -Dsonar.python.coverage.reportPaths=coverage.xml \
+                          -Dsononar.python.coverage.reportPaths=coverage.xml \
                           -Dsonar.exclusions=**/migrations/**,**/tests/** \
                           -Dsonar.tests=. \
-                          -Dsonar.python.version=3.10
+                          -Dsonar.python.version=3.11
                         '''
                     }
                 }
@@ -214,6 +206,51 @@ pipeline {
                 sh '''
                 trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress ${APP_NAME}:${IMAGE_TAG}
                 '''
+            }
+        }
+
+        stage('Push Image to ECR') {
+            when {
+                allOf {
+                    branch 'main'
+                    expression { 
+                        currentBuild.result == null || currentBuild.result == 'SUCCESS' 
+                    }
+                }
+            }
+            steps {
+                script {
+                    withCredentials([
+                        awsCredentials(
+                            credentialsId: 'aws-credentials',
+                            accessKeyVariable: 'AWS_ACCESS_KEY_ID',
+                            secretKeyVariable: 'AWS_SECRET_ACCESS_KEY'
+                        )
+                    ]) {
+                        sh '''
+                        AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+                        aws ecr get-login-password --region ${AWS_REGION} | \
+                          docker login --username AWS --password-stdin \
+                          ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+                        aws ecr describe-repositories --repository-names ${ECR_REPO} 2>/dev/null || \
+                          aws ecr create-repository --repository-name ${ECR_REPO}
+
+                        docker tag ${APP_NAME}:${IMAGE_TAG} \
+                          ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
+                        
+                        docker tag ${APP_NAME}:${IMAGE_TAG} \
+                          ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
+
+                        docker push \
+                          ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
+                        
+                        docker push \
+                          ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:latest
+                        '''
+                    }
+                }
             }
         }
     }
