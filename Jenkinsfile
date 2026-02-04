@@ -28,6 +28,7 @@ pipeline {
         timestamps()
         disableConcurrentBuilds()
         buildDiscarder(logRotator(numToKeepStr: '10'))
+        timeout(time: 30, unit: 'MINUTES')
     }
 
     stages {
@@ -59,8 +60,6 @@ pipeline {
                   echo "Waiting for PostgreSQL... (attempt $i/30)"
                   sleep 2
                 done
-                
-                sleep 3
                 '''
             }
         }
@@ -74,6 +73,7 @@ pipeline {
                     pip install --upgrade pip setuptools wheel
                     pip install -r requirements.txt
                     
+                    # Install pytest with Django support
                     pip install pytest pytest-django pytest-cov pytest-xdist
                     pip install factory-boy Faker
                     '''
@@ -90,41 +90,68 @@ pipeline {
                     echo "Creating migrations..."
                     python manage.py makemigrations --noinput || echo "No new migrations to create"
 
-                    echo "Applying migrations..."
+                    echo "Applying migrations to main database..."
                     python manage.py migrate --noinput
                     
-                    echo "Checking applied migrations..."
-                    python manage.py showmigrations
+                    echo "Migrations completed!"
                     '''
                 }
             }
         }
 
-        stage('Collect Static Files') {
-            steps {
-                dir('backend') {
-                    sh '''
-                    . venv/bin/activate
-                    python manage.py collectstatic --noinput
-                    '''
-                }
-            }
-        }
-
-        stage('Run Tests with Pytest') {
+        stage('Setup Test Database') {
             steps {
                 dir('backend') {
                     sh '''
                     . venv/bin/activate
                     
-                    # Run tests with coverage
+                    # Create a test-specific database
+                    echo "Setting up test database..."
+                    
+                    # Option 1: Use Django's test setup
+                    python manage.py flush --noinput
+                    python manage.py migrate --noinput
+                    
+                    # Option 2: Or create test database directly
+                    # PGPASSWORD=${DB_PASSWORD} psql -h ${DB_HOST} -U ${DB_USER} -p ${DB_PORT} -c "CREATE DATABASE test_${DB_NAME};"
+                    
+                    echo "Test database ready!"
+                    '''
+                }
+            }
+        }
+
+        stage('Run Tests with Django Test Runner') {
+            steps {
+                dir('backend') {
+                    sh '''
+                    . venv/bin/activate
+                    
+                    # First run Django's test runner to ensure database is set up
+                    echo "Running Django tests..."
+                    python manage.py test --noinput --parallel=4
+                    '''
+                }
+            }
+        }
+
+        stage('Run Tests with Pytest for Coverage') {
+            steps {
+                dir('backend') {
+                    sh '''
+                    . venv/bin/activate
+                    
+                    # Run tests with coverage - use --reuse-db to reuse the test database
                     pytest \
                         --ds=gig_router.settings \
                         --cov=. \
                         --cov-report=xml:coverage.xml \
+                        --cov-report=html:htmlcov \
                         --cov-report=term \
                         --junitxml=junit-results.xml \
                         --disable-warnings \
+                        --reuse-db \
+                        --create-db \
                         -v \
                         --tb=short
                     '''
@@ -133,9 +160,9 @@ pipeline {
             post {
                 always {
                     junit 'backend/junit-results.xml'
+                    archiveArtifacts artifacts: 'backend/coverage.xml', fingerprint: true
                     
                     script {
-                        // Only publish HTML if the directory exists
                         if (fileExists('backend/htmlcov/index.html')) {
                             publishHTML(
                                 target: [
@@ -171,7 +198,20 @@ pipeline {
             }
         }
 
+        stage('Quality Gate') {
+            steps {
+                timeout(time: 15, unit: 'MINUTES') {
+                    waitForQualityGate abortPipeline: true
+                }
+            }
+        }
+
         stage('Build Docker Image') {
+            when {
+                expression { 
+                    currentBuild.result == null || currentBuild.result == 'SUCCESS' 
+                }
+            }
             steps {
                 dir('backend') {
                     sh '''
@@ -183,16 +223,26 @@ pipeline {
         }
 
         stage('Security Scan (Trivy)') {
+            when {
+                expression { 
+                    currentBuild.result == null || currentBuild.result == 'SUCCESS' 
+                }
+            }
             steps {
                 sh '''
-                trivy image --severity HIGH,CRITICAL --exit-code 0 ${APP_NAME}:${IMAGE_TAG}
+                trivy image --severity HIGH,CRITICAL --exit-code 0 --no-progress ${APP_NAME}:${IMAGE_TAG}
                 '''
             }
         }
 
         stage('Push Image to ECR') {
             when {
-                branch 'main'
+                allOf {
+                    branch 'main'
+                    expression { 
+                        currentBuild.result == null || currentBuild.result == 'SUCCESS' 
+                    }
+                }
             }
             steps {
                 script {
@@ -210,7 +260,6 @@ pipeline {
                           docker login --username AWS --password-stdin \
                           ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
 
-                        # Create repository if it doesn't exist
                         aws ecr describe-repositories --repository-names ${ECR_REPO} 2>/dev/null || \
                           aws ecr create-repository --repository-name ${ECR_REPO}
 
@@ -239,6 +288,7 @@ pipeline {
             docker rm -f ci-postgres || true
             docker rmi ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest || true
             '''
+            
             cleanWs(
                 cleanWhenAborted: true,
                 cleanWhenFailure: true,
@@ -249,15 +299,17 @@ pipeline {
         }
         
         success {
+            script {
+                currentBuild.description = "✅ Build #${BUILD_NUMBER} Success"
+            }
             echo "✅ CI pipeline completed successfully!"
         }
         
         failure {
+            script {
+                currentBuild.description = "❌ Build #${BUILD_NUMBER} Failed"
+            }
             echo "❌ CI pipeline failed"
-        }
-        
-        unstable {
-            echo "⚠️  Pipeline is unstable (tests failed)"
         }
     }
 }
