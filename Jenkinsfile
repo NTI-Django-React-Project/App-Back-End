@@ -88,7 +88,9 @@ pipeline {
           export DB_PASSWORD=test
           export DB_HOST=localhost
           export DB_PORT=5432
-
+      # 🔥 CREATE SCHEMA
+     	  python manage.py makemigrations
+          python manage.py migrate
           pytest --cov=. --cov-report=xml
           '''
         }
