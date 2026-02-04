@@ -4,7 +4,7 @@ pipeline {
     environment {
         AWS_REGION = 'us-east-1'
         APP_NAME = 'django-backend'
-        ECR_REPO = 'django-backend'
+        ECR_REPO = 'backend-app'
 
         DB_ENGINE = 'django.db.backends.postgresql'
         DB_NAME = 'testdb'
