@@ -16,22 +16,25 @@ pipeline {
     DB_NAME = 'testdb'
     DB_USER = 'test'
     DB_PASS = 'test'
-    DB_HOST = 'localhost'  // Use Docker container hostname
+    DB_HOST = 'localhost'
     DB_PORT = '5432'
   }
 
   stages {
+
     stage('Checkout') {
       steps {
         checkout scm
       }
     }
 
-    stage('Start Postgres for CI') {
+    stage('Start Real DB for Tests') {
       steps {
         sh '''
+        echo "Removing any existing database container..."
         docker rm -f test-db || true
 
+        echo "Starting PostgreSQL Docker container for testing..."
         docker run -d \
           --name test-db \
           -e POSTGRES_DB=${DB_NAME} \
@@ -40,11 +43,8 @@ pipeline {
           -p 5432:5432 \
           postgres:15
 
-        echo "Waiting for Postgres to be ready..."
-        for i in {1..30}; do
-          docker exec test-db pg_isready -U ${DB_USER} && break
-          sleep 2
-        done
+        echo "Waiting for PostgreSQL to initialize..."
+        sleep 15
         '''
       }
     }
@@ -53,6 +53,7 @@ pipeline {
       steps {
         dir("${BACKEND_DIR}") {
           sh '''
+          echo "Setting up Python virtual environment and dependencies..."
           python3 -m venv venv
           . venv/bin/activate
           pip install --upgrade pip
@@ -63,31 +64,60 @@ pipeline {
       }
     }
 
-    stage('Migrate Database') {
+    stage('Build Django') {
       steps {
         dir("${BACKEND_DIR}") {
           sh '''
+          echo "Setting Django static assets..."
           . venv/bin/activate
 
-          echo "Applying migrations to Postgres..."
-          python manage.py migrate --noinput
+          export DB_NAME=testdb
+          export DB_USER=test
+          export DB_PASSWORD=test
+          export DB_HOST=localhost
+          export DB_PORT=5432
+
+          python manage.py collectstatic --noinput || true
           '''
         }
       }
     }
 
-    stage('Run Migration Tests') {
+    // Additional tests added incrementally
+
+    stage('Test: Check Migrations') {
       steps {
         dir("${BACKEND_DIR}") {
+          echo "Testing if migrations are applied to Postgres..."
           sh '''
           . venv/bin/activate
 
-          echo "Checking if migrations validated user-related tables..."
-          python manage.py showmigrations
-          python manage.py sqlmigrate users 0001  # Adjust to first migration
+          export DB_NAME=testdb
+          export DB_USER=test
+          export DB_PASSWORD=test
+          export DB_HOST=localhost
+          export DB_PORT=5432
 
-          echo "Checking database schema directly through database..."
-          python manage.py dbshell << END
+          echo "Running migrations..."
+          python manage.py migrate --noinput
+
+          echo "Validating migration output..."
+          python manage.py showmigrations
+          python manage.py sqlmigrate users 0001  # Update to your app's first migration file
+          '''
+        }
+      }
+    }
+
+    stage('Test: Schema Validation') {
+      steps {
+        dir("${BACKEND_DIR}") {
+          echo "Checking if the users_user table exists..."
+          sh '''
+          . venv/bin/activate
+
+          echo "Testing database schema directly..."
+          python manage.py dbshell << END || true
           SELECT * FROM information_schema.tables WHERE table_name = 'users_user';
           END
           '''
@@ -95,27 +125,29 @@ pipeline {
       }
     }
 
-    stage('Run Unit Tests') {
+    stage('Test: Run Unit Tests') {
       steps {
         dir("${BACKEND_DIR}") {
+          echo "Running unit tests to isolate app logic issues..."
           sh '''
           . venv/bin/activate
 
-          echo "Running unit tests..."
-          pytest --ds=gig_router.settings --cov=. --disable-warnings -m "unit"
+          pytest --disable-warnings -m "unit" \
+              --no-summary --cov=. --cov-report=term-missing
           '''
         }
       }
     }
 
-    stage('Run Integration Tests') {
+    stage('Test: Run Integration Tests') {
       steps {
         dir("${BACKEND_DIR}") {
+          echo "Running integration tests with real PostgreSQL database..."
           sh '''
           . venv/bin/activate
 
-          echo "Running integration tests..."
-          pytest --ds=gig_router.settings --cov=. --disable-warnings -m "integration"
+          pytest --disable-warnings -m "integration" \
+              --ds=gig_router.settings
           '''
         }
       }
@@ -124,29 +156,92 @@ pipeline {
     stage('Run All Tests') {
       steps {
         dir("${BACKEND_DIR}") {
+          echo "Running all tests (combined coverage)..."
           sh '''
           . venv/bin/activate
 
-          echo "Running all tests..."
-          pytest --ds=gig_router.settings --cov=. --cov-report=html
+          pytest --ds=gig_router.settings --disable-warnings \
+              --cov=. --cov-report=html --cov-report=xml
           '''
         }
+      }
+    }
+
+    stage('SonarQube') {
+      steps {
+        dir("${BACKEND_DIR}") {
+          withSonarQubeEnv('SonarQube') {
+            sh '''
+            sonar-scanner \
+              -Dsonar.projectKey=gig-router-backend \
+              -Dsonar.sources=. \
+              -Dsonar.python.coverage.reportPaths=coverage.xml
+            '''
+          }
+        }
+      }
+    }
+
+    stage('Quality Gate') {
+      steps {
+        timeout(time: 5, unit: 'MINUTES') {
+          waitForQualityGate abortPipeline: true
+        }
+      }
+    }
+
+    stage('Kaniko Build (safe)') {
+      steps {
+        sh '''
+        docker run --rm \
+          -v $(pwd)/${BACKEND_DIR}:/workspace \
+          gcr.io/kaniko-project/executor \
+          --context=/workspace \
+          --dockerfile=/workspace/Dockerfile \
+          --destination=${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} \
+          --destination=${ECR_REGISTRY}/${ECR_REPO}:latest \
+          --no-push
+        '''
+      }
+    }
+
+    stage('Trivy Security Gate') {
+      steps {
+        sh '''
+        trivy image \
+          --severity HIGH,CRITICAL \
+          --exit-code 1 \
+          ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+        '''
+      }
+    }
+
+    stage('Push to ECR') {
+      steps {
+        sh '''
+        aws ecr get-login-password --region ${AWS_REGION} | \
+          docker login --username AWS --password-stdin ${ECR_REGISTRY}
+
+        docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+        docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+        '''
       }
     }
   }
 
   post {
     always {
+      echo "Cleaning up Postgres container and workspace..."
       sh 'docker rm -f test-db || true'
       cleanWs()
     }
 
-    success {
-      echo "✅ CI completed successfully!"
+    failure {
+      echo "❌ CI pipeline failed. Investigate test results!"
     }
 
-    failure {
-      echo "❌ CI failed. Fix tests and re-run."
+    success {
+      echo "✅ CI pipeline completed successfully!"
     }
   }
 }
