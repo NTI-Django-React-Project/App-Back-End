@@ -70,7 +70,7 @@ pipeline {
           . venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest pytest-cov
+          pip install pytest pytest-cov pytest-django
           '''
         }
       }
@@ -85,7 +85,6 @@ pipeline {
           
           python << END
 import psycopg2
-from os import getenv
 
 try:
     conn = psycopg2.connect(
@@ -101,6 +100,29 @@ except psycopg2.OperationalError as e:
     print("Failed to connect to database:", str(e))
     exit(1)
 END
+          '''
+        }
+      }
+    }
+
+    stage('Check Migrations Exist') {
+      steps {
+        dir("${BACKEND_DIR}") {
+          sh '''
+          echo "Checking if migration files exist..."
+          . venv/bin/activate
+
+          export DB_NAME=${DB_NAME}
+          export DB_USER=${DB_USER}
+          export DB_PASSWORD=${DB_PASS}
+          export DB_HOST=${DB_HOST}
+          export DB_PORT=${DB_PORT}
+
+          echo "Listing migrations for users app:"
+          ls -la users/migrations/
+          
+          echo "Showing all migrations:"
+          python manage.py showmigrations
           '''
         }
       }
@@ -125,50 +147,6 @@ END
       }
     }
 
-    stage('Apply Migrations') {
-      steps {
-        dir("${BACKEND_DIR}") {
-          sh '''
-          echo "Applying database migrations..."
-          . venv/bin/activate
-
-          export DB_NAME=${DB_NAME}
-          export DB_USER=${DB_USER}
-          export DB_PASSWORD=${DB_PASS}
-          export DB_HOST=${DB_HOST}
-          export DB_PORT=${DB_PORT}
-
-          python manage.py migrate --noinput
-
-          echo "Migrations applied successfully"
-          '''
-        }
-      }
-    }
-
-    stage('Validate Migrations') {
-      steps {
-        dir("${BACKEND_DIR}") {
-          sh '''
-          echo "Validating migration status..."
-          . venv/bin/activate
-
-          export DB_NAME=${DB_NAME}
-          export DB_USER=${DB_USER}
-          export DB_PASSWORD=${DB_PASS}
-          export DB_HOST=${DB_HOST}
-          export DB_PORT=${DB_PORT}
-
-          echo "Showing migration status:"
-          python manage.py showmigrations
-
-          echo "Checking users app first migration:"
-          python manage.py sqlmigrate users 0001 || echo "Migration file not found or already applied"
-          '''
-        }
-      }
-    }
-
     stage('Run All Tests') {
       steps {
         dir("${BACKEND_DIR}") {
@@ -185,8 +163,10 @@ END
           echo "Collecting tests..."
           pytest --collect-only --quiet
 
-          echo "Running tests..."
+          echo "Running tests with migrations..."
           pytest --ds=gig_router.settings \
+                 --create-db \
+                 --reuse-db=false \
                  --disable-warnings \
                  --verbose \
                  --cov=. \
