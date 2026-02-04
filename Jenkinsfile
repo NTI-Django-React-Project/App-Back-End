@@ -23,7 +23,6 @@ pipeline {
     }
 
     stages {
-
         stage('Checkout') {
             steps {
                 checkout scm
@@ -64,50 +63,46 @@ pipeline {
             }
         }
 
+        stage('Run Django Migrations') {
+            steps {
+                sh '''
+                . venv/bin/activate
 
+                # Export correct DB environment variables
+                export DB_NAME=${DB_NAME}
+                export DB_USER=${DB_USER}
+                export DB_PASSWORD=${DB_PASSWORD}
+                export DB_HOST=${DB_HOST}
+                export DB_PORT=${DB_PORT}
 
-	stage('Run Django Migrations') {
-    steps {
-        sh '''
-        . venv/bin/activate
+                cd backend
 
-        # Export correct DB environment variables
-        export DB_NAME=${DB_NAME}
-        export DB_USER=${DB_USER}
-        export DB_PASSWORD=${DB_PASSWORD}
-        export DB_HOST=${DB_HOST}
-        export DB_PORT=${DB_PORT}
+                # Retry migrations until Postgres is ready
+                until python manage.py migrate --noinput; do
+                  echo "Waiting for Postgres to accept migrations..."
+                  sleep 2
+                done
+                '''
+            }
+        }
 
-        cd backend
+        stage('Run Tests + Coverage') {
+            steps {
+                sh '''
+                . venv/bin/activate
 
-        # Retry migrations until Postgres is ready
-        until python manage.py migrate --noinput; do
-          echo "Waiting for Postgres to accept migrations..."
-          sleep 2
-        done
-        '''
-    }
-}
+                # Make sure Django sees the same DB
+                export DB_NAME=${DB_NAME}
+                export DB_USER=${DB_USER}
+                export DB_PASSWORD=${DB_PASSWORD}
+                export DB_HOST=${DB_HOST}
+                export DB_PORT=${DB_PORT}
 
-stage('Run Tests + Coverage') {
-    steps {
-        sh '''
-        . venv/bin/activate
-
-        # Make sure Django sees the same DB
-        export DB_NAME=${DB_NAME}
-        export DB_USER=${DB_USER}
-        export DB_PASSWORD=${DB_PASSWORD}
-        export DB_HOST=${DB_HOST}
-        export DB_PORT=${DB_PORT}
-
-        cd backend
-        pytest --cov=. --cov-report=xml --cov-report=term
-        '''
-    }
-}
-
-
+                cd backend
+                pytest --cov=. --cov-report=xml --cov-report=term
+                '''
+            }
+        }
 
         stage('SonarQube Analysis') {
             steps {
@@ -178,4 +173,3 @@ stage('Run Tests + Coverage') {
         }
     }
 }
-
