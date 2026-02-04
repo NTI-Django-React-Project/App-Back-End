@@ -16,7 +16,7 @@ pipeline {
     DB_NAME = 'testdb'
     DB_USER = 'test'
     DB_PASS = 'test'
-    DB_HOST = 'test-db'  // Use Docker container hostname
+    DB_HOST = 'localhost'  // Use Docker container hostname
     DB_PORT = '5432'
   }
 
