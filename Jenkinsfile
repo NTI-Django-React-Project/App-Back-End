@@ -18,7 +18,6 @@ pipeline {
         
         DJANGO_SETTINGS_MODULE = 'gig_router.settings'
         
-        # Additional Django settings for testing
         SECRET_KEY = 'django-insecure-test-key-for-ci'
         DEBUG = 'True'
         REDIS_URL = 'redis://localhost:6379/0'
