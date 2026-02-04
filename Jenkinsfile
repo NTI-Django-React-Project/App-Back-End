@@ -111,7 +111,7 @@ END
           sh '''
           echo "Checking for migration folders in each app..."
           for app in users gigs venues ai_services notifications; do
-            echo "=== $app ===" 
+            echo "=== $app ==="
             if [ -d "$app/migrations" ]; then
               echo "  ✓ migrations folder exists"
               ls -la $app/migrations/
@@ -269,7 +269,6 @@ END
         
         echo "Image pushed successfully"
         '''
-        }
       }
     }
   }
@@ -307,3 +306,4 @@ END
     }
   }
 }
+
