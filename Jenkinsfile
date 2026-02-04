@@ -105,6 +105,27 @@ END
       }
     }
 
+    stage('Check Migration Folders') {
+      steps {
+        dir("${BACKEND_DIR}") {
+          sh '''
+          echo "Checking for migration folders in each app..."
+          for app in users gigs venues ai_services notifications; do
+            echo "=== $app ===" 
+            if [ -d "$app/migrations" ]; then
+              echo "  ✓ migrations folder exists"
+              ls -la $app/migrations/
+            else
+              echo "  ✗ NO migrations folder - creating..."
+              mkdir -p $app/migrations
+              touch $app/migrations/__init__.py
+            fi
+          done
+          '''
+        }
+      }
+    }
+
     stage('Create Missing Migrations') {
       steps {
         dir("${BACKEND_DIR}") {
@@ -118,10 +139,14 @@ END
           export DB_HOST=${DB_HOST}
           export DB_PORT=${DB_PORT}
 
+          echo "Running makemigrations for all apps..."
           python manage.py makemigrations
 
           echo "Checking migration status..."
           python manage.py showmigrations
+          
+          echo "Listing all migration files..."
+          find . -path "*/migrations/*.py" -not -name "__init__.py"
           '''
         }
       }
@@ -244,6 +269,7 @@ END
         
         echo "Image pushed successfully"
         '''
+        }
       }
     }
   }
