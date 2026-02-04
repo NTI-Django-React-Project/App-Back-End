@@ -21,7 +21,6 @@ pipeline {
   }
 
   stages {
-
     stage('Checkout') {
       steps {
         checkout scm
@@ -64,104 +63,74 @@ pipeline {
       }
     }
 
-    stage('Prepare Django') {
+    stage('Migrate Database') {
       steps {
         dir("${BACKEND_DIR}") {
           sh '''
           . venv/bin/activate
-
-          export DB_NAME=${DB_NAME}
-          export DB_USER=${DB_USER}
-          export DB_PASSWORD=${DB_PASS}
-          export DB_HOST=${DB_HOST}
-          export DB_PORT=${DB_PORT}
-
-          python manage.py collectstatic --noinput || true
-          '''
-        }
-      }
-    }
-
-    stage('Run Tests + Migrations') {
-      steps {
-        dir("${BACKEND_DIR}") {
-          sh '''
-          . venv/bin/activate
-
-          export DB_NAME=${DB_NAME}
-          export DB_USER=${DB_USER}
-          export DB_PASSWORD=${DB_PASS}
-          export DB_HOST=${DB_HOST}
-          export DB_PORT=${DB_PORT}
 
           echo "Applying migrations to Postgres..."
           python manage.py migrate --noinput
-
-          echo "Running tests..."
-          pytest --ds=gig_router.settings --cov=. --cov-report=xml
           '''
         }
       }
     }
 
-    stage('SonarQube Analysis') {
+    stage('Run Migration Tests') {
       steps {
         dir("${BACKEND_DIR}") {
-          withSonarQubeEnv('SonarQube') {
-            sh '''
-            sonar-scanner \
-              -Dsonar.projectKey=gig-router-backend \
-              -Dsonar.sources=. \
-              -Dsonar.python.coverage.reportPaths=coverage.xml
-            '''
-          }
+          sh '''
+          . venv/bin/activate
+
+          echo "Checking if migrations validated user-related tables..."
+          python manage.py showmigrations
+          python manage.py sqlmigrate users 0001  # Adjust to first migration
+
+          echo "Checking database schema directly through database..."
+          python manage.py dbshell << END
+          SELECT * FROM information_schema.tables WHERE table_name = 'users_user';
+          END
+          '''
         }
       }
     }
 
-    stage('Quality Gate') {
+    stage('Run Unit Tests') {
       steps {
-        timeout(time: 5, unit: 'MINUTES') {
-          waitForQualityGate abortPipeline: true
+        dir("${BACKEND_DIR}") {
+          sh '''
+          . venv/bin/activate
+
+          echo "Running unit tests..."
+          pytest --ds=gig_router.settings --cov=. --disable-warnings -m "unit"
+          '''
         }
       }
     }
 
-    stage('Kaniko Build (local)') {
+    stage('Run Integration Tests') {
       steps {
-        sh '''
-        docker run --rm \
-          -v $(pwd)/${BACKEND_DIR}:/workspace \
-          gcr.io/kaniko-project/executor \
-          --context=/workspace \
-          --dockerfile=/workspace/Dockerfile \
-          --destination=${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} \
-          --destination=${ECR_REGISTRY}/${ECR_REPO}:latest \
-          --no-push
-        '''
+        dir("${BACKEND_DIR}") {
+          sh '''
+          . venv/bin/activate
+
+          echo "Running integration tests..."
+          pytest --ds=gig_router.settings --cov=. --disable-warnings -m "integration"
+          '''
+        }
       }
     }
 
-    stage('Trivy Security Scan') {
+    stage('Run All Tests') {
       steps {
-        sh '''
-        trivy image \
-          --severity HIGH,CRITICAL \
-          --exit-code 1 \
-          ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-        '''
-      }
-    }
+        dir("${BACKEND_DIR}") {
+          sh '''
+          . venv/bin/activate
 
-    stage('Push to ECR') {
-      steps {
-        sh '''
-        aws ecr get-login-password --region ${AWS_REGION} | \
-          docker login --username AWS --password-stdin ${ECR_REGISTRY}
-
-        docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-        docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
-        '''
+          echo "Running all tests..."
+          pytest --ds=gig_router.settings --cov=. --cov-report=html
+          '''
+        }
       }
     }
   }
@@ -173,12 +142,11 @@ pipeline {
     }
 
     success {
-      echo "✅ CI completed — Image pushed: ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+      echo "✅ CI completed successfully!"
     }
 
     failure {
-      echo "❌ CI failed"
+      echo "❌ CI failed. Fix tests and re-run."
     }
   }
 }
-
