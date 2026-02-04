@@ -4,7 +4,7 @@ pipeline {
     environment {
         AWS_REGION = 'us-east-1'
         APP_NAME = 'django-backend'
-        ECR_REPO = 'backend-app'
+        ECR_REPO = 'django-backend'
 
         DB_ENGINE = 'django.db.backends.postgresql'
         DB_NAME = 'testdb'
@@ -61,7 +61,6 @@ pipeline {
                   sleep 2
                 done
                 
-                # Give PostgreSQL extra time to initialize
                 sleep 5
                 '''
             }
@@ -76,20 +75,39 @@ pipeline {
                     pip install --upgrade pip setuptools wheel
                     pip install -r requirements.txt
                     
-                    pip install pytest pytest-django pytest-cov pytest-xdist
-                    pip install factory-boy Faker
+                    # Make sure pytest-django is installed
+                    pip install pytest pytest-django pytest-cov
                     '''
                 }
             }
         }
 
-        stage('Apply Migrations to Main Database') {
+        stage('Create Test Database') {
             steps {
                 dir('backend') {
                     sh '''
                     . venv/bin/activate
                     
-                    echo "=== Applying migrations to main database ==="
+                    # Drop and recreate test database
+                    echo "=== Creating fresh test database ==="
+                    PGPASSWORD=${DB_PASSWORD} psql -h ${DB_HOST} -U ${DB_USER} -p ${DB_PORT} -c "DROP DATABASE IF EXISTS test_${DB_NAME};" 2>/dev/null || true
+                    PGPASSWORD=${DB_PASSWORD} psql -h ${DB_HOST} -U ${DB_USER} -p ${DB_PORT} -c "CREATE DATABASE test_${DB_NAME};" || true
+                    
+                    echo "Test database created: test_${DB_NAME}"
+                    '''
+                }
+            }
+        }
+
+        stage('Run Migrations on Test Database') {
+            steps {
+                dir('backend') {
+                    sh '''
+                    . venv/bin/activate
+                    
+                    # Run migrations on the test database
+                    echo "=== Running migrations on test database ==="
+                    export DB_NAME=test_${DB_NAME}
                     python manage.py migrate --noinput
                     
                     echo "=== Verifying migrations ==="
@@ -99,20 +117,21 @@ pipeline {
             }
         }
 
-        stage('Run Tests with Proper Database Setup') {
+        stage('Run Tests') {
             steps {
                 dir('backend') {
                     sh '''
                     . venv/bin/activate
                     
-                    echo "=== Setting up test environment ==="
+                    echo "=== Running tests ==="
                     
-                    # Method 1: Run Django's test command first to set up test database
-                    echo "Running Django test command to set up test database..."
-                    python manage.py test --noinput users.tests.UserModelTest.test_user_creation 2>&1 | head -50 || true
+                    # Run tests using the test database
+                    export DB_NAME=test_${DB_NAME}
                     
-                    echo "=== Running all tests with pytest ==="
-                    # Now run all tests with pytest using the test database
+                    # First run a simple test to verify setup
+                    python manage.py test users.tests.UserModelTest.test_user_creation --noinput 2>&1 || echo "Single test completed"
+                    
+                    # Now run all tests with pytest
                     pytest \
                         --ds=gig_router.settings \
                         --cov=. \
@@ -121,10 +140,10 @@ pipeline {
                         --cov-report=term \
                         --junitxml=junit-results.xml \
                         --disable-warnings \
-                        --reuse-db \
                         -v \
                         --tb=short \
-                        --create-db
+                        --create-db \
+                        --reuse-db
                     '''
                 }
             }
