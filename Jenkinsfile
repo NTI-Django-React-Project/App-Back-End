@@ -204,7 +204,7 @@ END
     stage('SonarQube Analysis') {
       steps {
         dir("${BACKEND_DIR}") {
-          withSonarQubeEnv('sonar') {
+          withSonarQubeEnv('sonar-qube') {
             sh '''
             echo "Running SonarQube analysis..."
             sonar-scanner \
