@@ -1,22 +1,20 @@
 pipeline {
     agent any
 
-
     environment {
-    	AWS_REGION = 'us-east-1'
-    	APP_NAME = 'django-backend'
-    	ECR_REPO = 'django-backend'
+        AWS_REGION = 'us-east-1'
+        APP_NAME = 'django-backend'
+        ECR_REPO = 'django-backend'
 
-    	DB_ENGINE = 'django.db.backends.postgresql'
-    	DB_NAME = 'testdb'
-    	DB_USER = 'testuser'
-    	DB_PASSWORD = 'testpass'
-    	DB_HOST = 'localhost'
-    	DB_PORT = '5432'
+        DB_ENGINE = 'django.db.backends.postgresql'
+        DB_NAME = 'testdb'
+        DB_USER = 'testuser'
+        DB_PASSWORD = 'testpass'
+        DB_HOST = 'localhost'
+        DB_PORT = '5432'
 
-    	IMAGE_TAG = "${BUILD_NUMBER}"
+        IMAGE_TAG = "${BUILD_NUMBER}"
     }
-
 
     options {
         timestamps()
@@ -26,56 +24,60 @@ pipeline {
     stages {
 
         stage('Checkout') {
-            steps { checkout scm }
+            steps {
+                checkout scm
+            }
         }
 
-        stage('Start PostgreSQL') {
+        stage('Start PostgreSQL for CI') {
             steps {
                 sh '''
-                docker run -d --name ci-postgres \
-		  -e POSTGRES_DB=${DB_NAME}
-		  -e POSTGRES_USER=${DB_USER}
-		  -e POSTGRES_PASSWORD=${DB_PASSWORD}
-                  -p 5432:5432 postgres:15
+                docker rm -f ci-postgres || true
 
-                echo "Waiting for Postgres..."
-                until docker exec ci-postgres pg_isready -U ${POSTGRES_USER}; do
+                docker run -d \
+                  --name ci-postgres \
+                  -e POSTGRES_DB=${DB_NAME} \
+                  -e POSTGRES_USER=${DB_USER} \
+                  -e POSTGRES_PASSWORD=${DB_PASSWORD} \
+                  -p 5432:5432 \
+                  postgres:15
+
+                echo "Waiting for Postgres to be ready..."
+                for i in {1..20}; do
+                  docker exec ci-postgres pg_isready && break
                   sleep 2
                 done
                 '''
             }
         }
 
-        stage('Setup Python') {
+        stage('Setup Python Environment') {
             steps {
                 sh '''
                 python3 -m venv venv
                 . venv/bin/activate
-                pip install -U pip
+                pip install --upgrade pip
                 pip install -r backend/requirements.txt
                 '''
             }
         }
 
-        stage('Run Migrations') {
+        stage('Run Django Migrations') {
             steps {
                 sh '''
                 . venv/bin/activate
                 cd backend
-                export SECRET_KEY=ci-secret
-                export DEBUG=False
-
-                python manage.py migrate
+                python manage.py migrate --noinput
                 '''
             }
         }
 
-        stage('Run Tests') {
+        stage('Run Tests + Coverage') {
             steps {
                 sh '''
                 . venv/bin/activate
                 cd backend
-                pytest --cov=. --cov-report=xml:coverage.xml --cov-report=term
+                pytest --cov=. --cov-report=xml --cov-report=term
                 '''
             }
         }
@@ -95,7 +97,7 @@ pipeline {
             }
         }
 
-        stage('Build Image') {
+        stage('Build Docker Image') {
             steps {
                 sh '''
                 cd backend
@@ -104,10 +106,28 @@ pipeline {
             }
         }
 
-        stage('Security Scan') {
+        stage('Security Scan (Trivy)') {
             steps {
                 sh '''
                 trivy image --severity HIGH,CRITICAL ${APP_NAME}:${IMAGE_TAG}
+                '''
+            }
+        }
+
+        stage('Push Image to ECR') {
+            steps {
+                sh '''
+                AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+
+                aws ecr get-login-password --region ${AWS_REGION} | \
+                  docker login --username AWS --password-stdin \
+                  ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
+
+                docker tag ${APP_NAME}:${IMAGE_TAG} \
+                  ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
+
+                docker push \
+                  ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
                 '''
             }
         }
@@ -120,6 +140,14 @@ pipeline {
             docker rmi ${APP_NAME}:${IMAGE_TAG} || true
             '''
             cleanWs()
+        }
+
+        success {
+            echo "✅ CI pipeline completed successfully!"
+        }
+
+        failure {
+            echo "❌ CI pipeline failed"
         }
     }
 }
