@@ -5,6 +5,9 @@ pipeline {
         AWS_REGION = 'us-east-1'
         APP_NAME = 'django-backend'
         ECR_REPO = 'django-backend'
+
+
+#
  	DB_ENGINE = 'django.db.backends.postgresql'
         POSTGRES_DB = 'testdb'
         POSTGRES_USER = 'testuser'
