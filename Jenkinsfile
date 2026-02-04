@@ -16,6 +16,7 @@ pipeline {
     DB_NAME = 'testdb'
     DB_USER = 'test'
     DB_PASS = 'test'
+    DB_HOST = 'test-db'  // Use Docker container hostname
     DB_PORT = '5432'
   }
 
@@ -27,7 +28,7 @@ pipeline {
       }
     }
 
-    stage('Start Real DB for Tests') {
+    stage('Start Postgres for CI') {
       steps {
         sh '''
         docker rm -f test-db || true
@@ -40,7 +41,11 @@ pipeline {
           -p 5432:5432 \
           postgres:15
 
-        sleep 15
+        echo "Waiting for Postgres to be ready..."
+        for i in {1..30}; do
+          docker exec test-db pg_isready -U ${DB_USER} && break
+          sleep 2
+        done
         '''
       }
     }
@@ -59,17 +64,17 @@ pipeline {
       }
     }
 
-    stage('Build Django') {
+    stage('Prepare Django') {
       steps {
         dir("${BACKEND_DIR}") {
           sh '''
           . venv/bin/activate
 
-          export DB_NAME=testdb
-          export DB_USER=test
-          export DB_PASSWORD=test
-          export DB_HOST=localhost
-          export DB_PORT=5432
+          export DB_NAME=${DB_NAME}
+          export DB_USER=${DB_USER}
+          export DB_PASSWORD=${DB_PASS}
+          export DB_HOST=${DB_HOST}
+          export DB_PORT=${DB_PORT}
 
           python manage.py collectstatic --noinput || true
           '''
@@ -77,32 +82,29 @@ pipeline {
       }
     }
 
-    stage('Run Tests (real DB)') {
+    stage('Run Tests + Migrations') {
       steps {
         dir("${BACKEND_DIR}") {
           sh '''
           . venv/bin/activate
 
-          export DB_NAME=testdb
-          export DB_USER=test
-          export DB_PASSWORD=test
-          export DB_HOST=localhost
-          export DB_PORT=5432
-      # 🔥 CREATE SCHEMA
-# Apply migrations to the DB pytest will clone
-	  python manage.py migrate --noinput
+          export DB_NAME=${DB_NAME}
+          export DB_USER=${DB_USER}
+          export DB_PASSWORD=${DB_PASS}
+          export DB_HOST=${DB_HOST}
+          export DB_PORT=${DB_PORT}
 
-# Run tests with explicit settings module
-	  pytest --ds=gig_router.settings --cov=. --cov-report=xml
-     	  #python manage.py makemigrations users
-          #python manage.py migrate
-          #pytest --cov=. --cov-report=xml
+          echo "Applying migrations to Postgres..."
+          python manage.py migrate --noinput
+
+          echo "Running tests..."
+          pytest --ds=gig_router.settings --cov=. --cov-report=xml
           '''
         }
       }
     }
 
-    stage('SonarQube') {
+    stage('SonarQube Analysis') {
       steps {
         dir("${BACKEND_DIR}") {
           withSonarQubeEnv('SonarQube') {
@@ -125,7 +127,7 @@ pipeline {
       }
     }
 
-    stage('Kaniko Build (safe)') {
+    stage('Kaniko Build (local)') {
       steps {
         sh '''
         docker run --rm \
@@ -140,7 +142,7 @@ pipeline {
       }
     }
 
-    stage('Trivy Security Gate') {
+    stage('Trivy Security Scan') {
       steps {
         sh '''
         trivy image \
@@ -172,6 +174,10 @@ pipeline {
 
     success {
       echo "✅ CI completed — Image pushed: ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+    }
+
+    failure {
+      echo "❌ CI failed"
     }
   }
 }
