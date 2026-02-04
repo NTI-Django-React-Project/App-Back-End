@@ -49,7 +49,7 @@ pipeline {
         do
             docker exec test-db pg_isready -U ${DB_USER}
             if [ $? -eq 0 ]; then
-              echo "✅ PostgreSQL is ready!"
+              echo "PostgreSQL is ready!"
               break
             fi
             echo "Waiting for PostgreSQL... ($i/30)"
@@ -78,7 +78,7 @@ pipeline {
       steps {
         dir("${BACKEND_DIR}") {
           sh '''
-          echo "🔍 Testing database connection..."
+          echo "Testing database connection..."
           . venv/bin/activate
           
           python << END
@@ -93,10 +93,10 @@ try:
         host="${DB_HOST}",
         port="${DB_PORT}"
     )
-    print("✅ Successfully connected to the database!")
+    print("Successfully connected to the database!")
     conn.close()
 except psycopg2.OperationalError as e:
-    print("❌ Failed to connect to database:", str(e))
+    print("Failed to connect to database:", str(e))
     exit(1)
 END
           '''
@@ -127,7 +127,7 @@ END
       steps {
         dir("${BACKEND_DIR}") {
           sh '''
-          echo "📦 Applying database migrations..."
+          echo "Applying database migrations..."
           . venv/bin/activate
 
           export DB_NAME=${DB_NAME}
@@ -138,7 +138,7 @@ END
 
           python manage.py migrate --noinput
 
-          echo "✅ Migrations applied successfully"
+          echo "Migrations applied successfully"
           '''
         }
       }
@@ -148,7 +148,7 @@ END
       steps {
         dir("${BACKEND_DIR}") {
           sh '''
-          echo "🔍 Validating migration status..."
+          echo "Validating migration status..."
           . venv/bin/activate
 
           export DB_NAME=${DB_NAME}
@@ -160,8 +160,8 @@ END
           echo "Showing migration status:"
           python manage.py showmigrations
 
-          echo "\nChecking users app first migration:"
-          python manage.py sqlmigrate users 0001 || echo "⚠️  Migration file not found or already applied"
+          echo "Checking users app first migration:"
+          python manage.py sqlmigrate users 0001 || echo "Migration file not found or already applied"
           '''
         }
       }
@@ -171,7 +171,7 @@ END
       steps {
         dir("${BACKEND_DIR}") {
           sh '''
-          echo "🧪 Running all tests with coverage..."
+          echo "Running all tests with coverage..."
           . venv/bin/activate
 
           export DB_NAME=${DB_NAME}
@@ -180,10 +180,10 @@ END
           export DB_HOST=${DB_HOST}
           export DB_PORT=${DB_PORT}
 
-          echo "📋 Collecting tests..."
+          echo "Collecting tests..."
           pytest --collect-only --quiet
 
-          echo "\n🚀 Running tests..."
+          echo "Running tests..."
           pytest --ds=gig_router.settings \
                  --disable-warnings \
                  --verbose \
@@ -201,7 +201,7 @@ END
         dir("${BACKEND_DIR}") {
           withSonarQubeEnv('SonarQube') {
             sh '''
-            echo "📊 Running SonarQube analysis..."
+            echo "Running SonarQube analysis..."
             sonar-scanner \
               -Dsonar.projectKey=gig-router-backend \
               -Dsonar.sources=. \
@@ -223,7 +223,7 @@ END
     stage('Kaniko Build') {
       steps {
         sh '''
-        echo "🐳 Building Docker image with Kaniko..."
+        echo "Building Docker image with Kaniko..."
         docker run --rm \
           -v $(pwd)/${BACKEND_DIR}:/workspace \
           gcr.io/kaniko-project/executor \
@@ -233,7 +233,7 @@ END
           --destination=${ECR_REGISTRY}/${ECR_REPO}:latest \
           --no-push
         
-        echo "✅ Docker image built successfully"
+        echo "Docker image built successfully"
         '''
       }
     }
@@ -241,13 +241,13 @@ END
     stage('Trivy Security Scan') {
       steps {
         sh '''
-        echo "🔒 Scanning Docker image for vulnerabilities..."
+        echo "Scanning Docker image for vulnerabilities..."
         trivy image \
           --severity HIGH,CRITICAL \
           --exit-code 1 \
           ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
         
-        echo "✅ Security scan passed"
+        echo "Security scan passed"
         '''
       }
     }
@@ -255,14 +255,14 @@ END
     stage('Push to ECR') {
       steps {
         sh '''
-        echo "📤 Pushing Docker image to ECR..."
+        echo "Pushing Docker image to ECR..."
         aws ecr get-login-password --region ${AWS_REGION} | \
           docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
         docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
         docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
         
-        echo "✅ Image pushed successfully"
+        echo "Image pushed successfully"
         '''
       }
     }
@@ -270,30 +270,18 @@ END
 
   post {
     always {
-      echo "🧹 Cleaning up resources..."
+      echo "Cleaning up resources..."
       sh 'docker rm -f test-db || true'
-      
-      // Archive test results and coverage reports
-      junit '**/test-results/*.xml' allowEmptyResults: true
-      publishHTML(target: [
-        allowMissing: true,
-        alwaysLinkToLastBuild: true,
-        keepAll: true,
-        reportDir: 'backend/htmlcov',
-        reportFiles: 'index.html',
-        reportName: 'Coverage Report'
-      ])
-      
       cleanWs()
     }
 
     success {
-      echo "✅ CI pipeline completed successfully!"
-      echo "📦 Image pushed: ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+      echo "CI pipeline completed successfully!"
+      echo "Image pushed: ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
     }
 
     failure {
-      echo "❌ CI pipeline failed. Check the logs for details."
+      echo "CI pipeline failed. Check the logs for details."
     }
   }
 }
