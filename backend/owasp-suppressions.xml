@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    
+    <!-- 
+        OWASP Dependency Check Suppressions
+        
+        This file contains suppressions for known false positives.
+        Add suppressions carefully and document the reason.
+    -->
+    
+    <!-- Example: Suppress specific CVE for a package -->
+    <!--
+    <suppress>
+        <notes><![CDATA[
+        File name: package-name-1.0.0.jar
+        Reason: This CVE does not affect our usage of this library
+        ]]></notes>
+        <packageUrl regex="true">^pkg:pypi/package-name@.*$</packageUrl>
+        <cve>CVE-2021-12345</cve>
+    </suppress>
+    -->
+    
+    <!-- Suppress development/testing dependencies if needed -->
+    <!--
+    <suppress>
+        <notes><![CDATA[
+        Development dependencies used only in test environment
+        ]]></notes>
+        <packageUrl regex="true">^pkg:pypi/(pytest|faker|factory-boy)@.*$</packageUrl>
+    </suppress>
+    -->
+    
+</suppressions>
