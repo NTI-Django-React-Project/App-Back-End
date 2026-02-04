@@ -125,29 +125,25 @@ pipeline {
       }
     }
 
-    stage('Test: Run Unit Tests') {
+    stage('Run All Tests') {
       steps {
         dir("${BACKEND_DIR}") {
-          echo "Running unit tests to isolate app logic issues..."
+          echo "Running all tests (combined coverage)..."
           sh '''
           . venv/bin/activate
 
-          pytest --disable-warnings -m "unit" \
-              --no-summary --cov=. --cov-report=term-missing
-          '''
-        }
-      }
-    }
+          export DB_NAME=testdb
+          export DB_USER=test
+          export DB_PASSWORD=test
+          export DB_HOST=localhost
+          export DB_PORT=5432
 
-    stage('Test: Run Integration Tests') {
-      steps {
-        dir("${BACKEND_DIR}") {
-          echo "Running integration tests with real PostgreSQL database..."
-          sh '''
-          . venv/bin/activate
+          echo "🧪 Collecting tests..."
+          pytest --collect-only
 
-          pytest --disable-warnings -m "integration" \
-              --ds=gig_router.settings
+          echo "✅ Running all tests..."
+          pytest --ds=gig_router.settings --disable-warnings \
+              --cov=. --cov-report=html --cov-report=xml
           '''
         }
       }
