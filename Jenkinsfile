@@ -105,6 +105,28 @@ END
       }
     }
 
+    stage('Create Missing Migrations') {
+      steps {
+        dir("${BACKEND_DIR}") {
+          sh '''
+          echo "Creating any missing migrations..."
+          . venv/bin/activate
+
+          export DB_NAME=${DB_NAME}
+          export DB_USER=${DB_USER}
+          export DB_PASSWORD=${DB_PASS}
+          export DB_HOST=${DB_HOST}
+          export DB_PORT=${DB_PORT}
+
+          python manage.py makemigrations
+
+          echo "Checking migration status..."
+          python manage.py showmigrations
+          '''
+        }
+      }
+    }
+
     stage('Build Django') {
       steps {
         dir("${BACKEND_DIR}") {
