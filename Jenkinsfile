@@ -10,10 +10,11 @@ pipeline {
         DB_NAME = 'testdb'
         DB_USER = 'testuser'
         DB_PASSWORD = 'testpass'
-        DB_HOST = 'localhost'
+        DB_HOST = 'ci-postgres'   // <-- fixed
         DB_PORT = '5432'
 
         IMAGE_TAG = "${BUILD_NUMBER}"
+        PYTHONPATH = 'backend'    // ensures Django can find your project
     }
 
     options {
@@ -43,10 +44,11 @@ pipeline {
                   postgres:15
 
                 echo "Waiting for Postgres to be ready..."
-                for i in {1..20}; do
-                  docker exec ci-postgres pg_isready && break
+                until docker exec ci-postgres pg_isready -U ${DB_USER}; do
                   sleep 2
+                  echo "Postgres not ready yet..."
                 done
+                echo "Postgres is ready!"
                 '''
             }
         }
@@ -66,6 +68,12 @@ pipeline {
             steps {
                 sh '''
                 . venv/bin/activate
+                export DB_HOST=${DB_HOST}
+                export DB_NAME=${DB_NAME}
+                export DB_USER=${DB_USER}
+                export DB_PASSWORD=${DB_PASSWORD}
+                export DB_PORT=${DB_PORT}
+
                 cd backend
                 python manage.py migrate --noinput
                 '''
@@ -76,6 +84,12 @@ pipeline {
             steps {
                 sh '''
                 . venv/bin/activate
+                export DB_HOST=${DB_HOST}
+                export DB_NAME=${DB_NAME}
+                export DB_USER=${DB_USER}
+                export DB_PASSWORD=${DB_PASSWORD}
+                export DB_PORT=${DB_PORT}
+
                 cd backend
                 pytest --cov=. --cov-report=xml --cov-report=term
                 '''
