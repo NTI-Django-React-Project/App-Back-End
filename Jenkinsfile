@@ -1,22 +1,22 @@
 pipeline {
     agent any
 
+
     environment {
-        AWS_REGION = 'us-east-1'
-        APP_NAME = 'django-backend'
-        ECR_REPO = 'django-backend'
+    	AWS_REGION = 'us-east-1'
+    	APP_NAME = 'django-backend'
+    	ECR_REPO = 'django-backend'
 
+    	DB_ENGINE = 'django.db.backends.postgresql'
+    	DB_NAME = 'testdb'
+    	DB_USER = 'testuser'
+    	DB_PASSWORD = 'testpass'
+    	DB_HOST = 'localhost'
+    	DB_PORT = '5432'
 
-#
- 	DB_ENGINE = 'django.db.backends.postgresql'
-        POSTGRES_DB = 'testdb'
-        POSTGRES_USER = 'testuser'
-        POSTGRES_PASSWORD = 'testpass'
-        POSTGRES_HOST = 'localhost'
-        POSTGRES_PORT = '5432'
-
-        IMAGE_TAG = "${BUILD_NUMBER}"
+    	IMAGE_TAG = "${BUILD_NUMBER}"
     }
+
 
     options {
         timestamps()
@@ -33,9 +33,9 @@ pipeline {
             steps {
                 sh '''
                 docker run -d --name ci-postgres \
-                  -e POSTGRES_DB=${POSTGRES_DB} \
-                  -e POSTGRES_USER=${POSTGRES_USER} \
-                  -e POSTGRES_PASSWORD=${POSTGRES_PASSWORD} \
+		  -e POSTGRES_DB=${DB_NAME}
+		  -e POSTGRES_USER=${DB_USER}
+		  -e POSTGRES_PASSWORD=${DB_PASSWORD}
                   -p 5432:5432 postgres:15
 
                 echo "Waiting for Postgres..."
