@@ -105,29 +105,6 @@ END
       }
     }
 
-    stage('Check Migrations Exist') {
-      steps {
-        dir("${BACKEND_DIR}") {
-          sh '''
-          echo "Checking if migration files exist..."
-          . venv/bin/activate
-
-          export DB_NAME=${DB_NAME}
-          export DB_USER=${DB_USER}
-          export DB_PASSWORD=${DB_PASS}
-          export DB_HOST=${DB_HOST}
-          export DB_PORT=${DB_PORT}
-
-          echo "Listing migrations for users app:"
-          ls -la users/migrations/
-          
-          echo "Showing all migrations:"
-          python manage.py showmigrations
-          '''
-        }
-      }
-    }
-
     stage('Build Django') {
       steps {
         dir("${BACKEND_DIR}") {
@@ -163,10 +140,9 @@ END
           echo "Collecting tests..."
           pytest --collect-only --quiet
 
-          echo "Running tests with migrations..."
+          echo "Running tests with fresh database..."
           pytest --ds=gig_router.settings \
                  --create-db \
-                 --reuse-db=false \
                  --disable-warnings \
                  --verbose \
                  --cov=. \
