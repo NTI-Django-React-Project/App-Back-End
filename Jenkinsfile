@@ -14,7 +14,7 @@ pipeline {
         DB_PORT = '5432'
 
         IMAGE_TAG = "${BUILD_NUMBER}"
-        PYTHONPATH = '.'
+        PYTHONPATH = 'backend'
         
         DJANGO_SETTINGS_MODULE = 'gig_router.settings'
         
@@ -67,72 +67,79 @@ pipeline {
 
         stage('Setup Python Environment') {
             steps {
-                sh '''
-                # We're already in the backend directory (workspace/backend-CI/backend/)
-                python3 -m venv venv
-                . venv/bin/activate
-                pip install --upgrade pip setuptools wheel
-                pip install -r requirements.txt
-                
-                pip install pytest pytest-django pytest-cov pytest-xdist
-                pip install factory-boy Faker
-                '''
+                dir('backend') {
+                    sh '''
+                    python3 -m venv venv
+                    . venv/bin/activate
+                    pip install --upgrade pip setuptools wheel
+                    pip install -r requirements.txt
+                    
+                    pip install pytest pytest-django pytest-cov pytest-xdist
+                    pip install factory-boy Faker
+                    '''
+                }
             }
         }
 
         stage('Run Django Migrations') {
             steps {
-                sh '''
-                . venv/bin/activate
+                dir('backend') {
+                    sh '''
+                    . venv/bin/activate
 
-                echo "Creating migrations..."
-                python manage.py makemigrations --noinput || echo "No new migrations to create"
+                    echo "Creating migrations..."
+                    python manage.py makemigrations --noinput || echo "No new migrations to create"
 
-                echo "Applying migrations..."
-                python manage.py migrate --noinput
-                
-                echo "Checking applied migrations..."
-                python manage.py showmigrations
-                '''
+                    echo "Applying migrations..."
+                    python manage.py migrate --noinput
+                    
+                    echo "Checking applied migrations..."
+                    python manage.py showmigrations
+                    '''
+                }
             }
         }
 
         stage('Collect Static Files') {
             steps {
-                sh '''
-                . venv/bin/activate
-                python manage.py collectstatic --noinput
-                '''
+                dir('backend') {
+                    sh '''
+                    . venv/bin/activate
+                    python manage.py collectstatic --noinput
+                    '''
+                }
             }
         }
 
         stage('Run Tests with Pytest') {
             steps {
-                sh '''
-                . venv/bin/activate
-                
-                # Run tests with coverage
-                pytest \
-                    --ds=gig_router.settings \
-                    --cov=. \
-                    --cov-report=xml:coverage.xml \
-                    --cov-report=term \
-                    --junitxml=junit-results.xml \
-                    --disable-warnings \
-                    -v \
-                    --tb=short
-                '''
+                dir('backend') {
+                    sh '''
+                    . venv/bin/activate
+                    
+                    # Run tests with coverage
+                    pytest \
+                        --ds=gig_router.settings \
+                        --cov=. \
+                        --cov-report=xml:coverage.xml \
+                        --cov-report=term \
+                        --junitxml=junit-results.xml \
+                        --disable-warnings \
+                        -v \
+                        --tb=short
+                    '''
+                }
             }
             post {
                 always {
-                    junit 'junit-results.xml'
+                    junit 'backend/junit-results.xml'
                     
                     script {
                         // Only publish HTML if the directory exists
-                        if (fileExists('htmlcov/index.html')) {
+                        if (fileExists('backend/htmlcov/index.html')) {
                             publishHTML(
                                 target: [
-                                    reportDir: 'htmlcov',
+                                    reportDir: 'backend/htmlcov',
                                     reportFiles: 'index.html',
                                     reportName: 'Coverage Report',
                                     alwaysLinkToLastBuild: true,
@@ -148,26 +155,30 @@ pipeline {
 
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('SonarQube') {
-                    sh '''
-                    sonar-scanner \
-                      -Dsonar.projectKey=django-backend \
-                      -Dsonar.sources=. \
-                      -Dsonar.python.coverage.reportPaths=coverage.xml \
-                      -Dsonar.exclusions=**/migrations/**,**/tests/** \
-                      -Dsonar.tests=. \
-                      -Dsonar.python.version=3.10
-                    '''
+                dir('backend') {
+                    withSonarQubeEnv('SonarQube') {
+                        sh '''
+                        sonar-scanner \
+                          -Dsonar.projectKey=django-backend \
+                          -Dsonar.sources=. \
+                          -Dsonar.python.coverage.reportPaths=coverage.xml \
+                          -Dsonar.exclusions=**/migrations/**,**/tests/** \
+                          -Dsonar.tests=. \
+                          -Dsonar.python.version=3.10
+                        '''
+                    }
                 }
             }
         }
 
         stage('Build Docker Image') {
             steps {
-                sh '''
-                docker build -t ${APP_NAME}:${IMAGE_TAG} .
-                docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest
-                '''
+                dir('backend') {
+                    sh '''
+                    docker build -t ${APP_NAME}:${IMAGE_TAG} .
+                    docker tag ${APP_NAME}:${IMAGE_TAG} ${APP_NAME}:latest
+                    '''
+                }
             }
         }
 
