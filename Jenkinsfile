@@ -23,34 +23,32 @@ pipeline {
     stages {
 
         stage('Checkout') {
-            steps {
-                checkout scm
-            }
+            steps { checkout scm }
         }
 
-        stage('Start PostgreSQL Container') {
+        stage('Start PostgreSQL') {
             steps {
                 sh '''
-                docker run -d \
-                  --name ci-postgres \
+                docker run -d --name ci-postgres \
                   -e POSTGRES_DB=${POSTGRES_DB} \
                   -e POSTGRES_USER=${POSTGRES_USER} \
                   -e POSTGRES_PASSWORD=${POSTGRES_PASSWORD} \
-                  -p 5432:5432 \
-                  postgres:15
+                  -p 5432:5432 postgres:15
 
                 echo "Waiting for Postgres..."
-                sleep 15
+                until docker exec ci-postgres pg_isready -U ${POSTGRES_USER}; do
+                  sleep 2
+                done
                 '''
             }
         }
 
-        stage('Setup Python Env') {
+        stage('Setup Python') {
             steps {
                 sh '''
                 python3 -m venv venv
                 . venv/bin/activate
-                pip install --upgrade pip
+                pip install -U pip
                 pip install -r backend/requirements.txt
                 '''
             }
@@ -81,8 +79,7 @@ pipeline {
                 sh '''
                 . venv/bin/activate
                 cd backend
-
-                pytest --cov=. --cov-report=xml --cov-report=term
+                pytest --cov=. --cov-report=xml:coverage.xml --cov-report=term
                 '''
             }
         }
@@ -102,7 +99,7 @@ pipeline {
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Build Image') {
             steps {
                 sh '''
                 cd backend
@@ -111,28 +108,10 @@ pipeline {
             }
         }
 
-        stage('Trivy Scan') {
+        stage('Security Scan') {
             steps {
                 sh '''
                 trivy image --severity HIGH,CRITICAL ${APP_NAME}:${IMAGE_TAG}
-                '''
-            }
-        }
-
-        stage('Push to ECR') {
-            steps {
-                sh '''
-                AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-                aws ecr get-login-password --region ${AWS_REGION} | \
-                  docker login --username AWS --password-stdin \
-                  ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com
-
-                docker tag ${APP_NAME}:${IMAGE_TAG} \
-                  ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
-
-                docker push \
-                  ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/${ECR_REPO}:${IMAGE_TAG}
                 '''
             }
         }
@@ -145,14 +124,6 @@ pipeline {
             docker rmi ${APP_NAME}:${IMAGE_TAG} || true
             '''
             cleanWs()
-        }
-
-        success {
-            echo "✅ CI pipeline finished successfully!"
-        }
-
-        failure {
-            echo "❌ CI pipeline failed"
         }
     }
 }
