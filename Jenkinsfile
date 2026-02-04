@@ -47,14 +47,16 @@ pipeline {
         echo "Waiting for PostgreSQL to be ready..."
         for i in {1..30}
         do
-            docker exec test-db pg_isready -U ${DB_USER}
-            if [ $? -eq 0 ]; then
+            if docker exec test-db pg_isready -U ${DB_USER} > /dev/null 2>&1; then
               echo "PostgreSQL is ready!"
               break
             fi
-            echo "Waiting for PostgreSQL... ($i/30)"
+            echo "Waiting for PostgreSQL... attempt $i/30"
             sleep 2
         done
+        
+        echo "Final check..."
+        docker exec test-db pg_isready -U ${DB_USER}
         '''
       }
     }
@@ -272,6 +274,22 @@ END
     always {
       echo "Cleaning up resources..."
       sh 'docker rm -f test-db || true'
+      
+      script {
+        try {
+          publishHTML([
+            allowMissing: true,
+            alwaysLinkToLastBuild: true,
+            keepAll: true,
+            reportDir: 'backend/htmlcov',
+            reportFiles: 'index.html',
+            reportName: 'Coverage Report'
+          ])
+        } catch (Exception e) {
+          echo "Could not publish coverage report: ${e.message}"
+        }
+      }
+      
       cleanWs()
     }
 
