@@ -1,0 +1,53 @@
+[run]
+source = .
+omit =
+    */tests/*
+    */test_*.py
+    *_test.py
+    */migrations/*
+    */venv/*
+    */env/*
+    */virtualenv/*
+    */__pycache__/*
+    */staticfiles/*
+    */mediafiles/*
+    */media/*
+    */static/*
+    manage.py
+    setup.py
+    */wsgi.py
+    */asgi.py
+    */celery.py
+    */conftest.py
+
+branch = True
+parallel = True
+
+[report]
+precision = 2
+show_missing = True
+skip_covered = False
+sort = Cover
+
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise AssertionError
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    if TYPE_CHECKING:
+    @abstract
+    @abstractmethod
+    @abstractproperty
+    pass
+
+[html]
+directory = htmlcov
+title = Gig Router Backend Coverage Report
+
+[xml]
+output = coverage.xml
+
+[json]
+output = coverage.json
+
