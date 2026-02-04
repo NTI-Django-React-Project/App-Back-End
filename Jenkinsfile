@@ -10,7 +10,7 @@ pipeline {
         DB_NAME = 'testdb'
         DB_USER = 'testuser'
         DB_PASSWORD = 'testpass'
-        DB_HOST = 'ci-postgres'   // <-- fixed
+        DB_HOST = 'localhost'   // <-- fixed
         DB_PORT = '5432'
 
         IMAGE_TAG = "${BUILD_NUMBER}"
