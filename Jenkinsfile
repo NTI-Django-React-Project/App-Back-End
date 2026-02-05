@@ -237,11 +237,16 @@ END
         echo "Loading Docker image from tar for Trivy scan..."
         docker load -i ${BACKEND_DIR}/${ECR_REPO}.tar
 
-        echo "Re-tagging image for Trivy scan..."
-        docker tag ${ECR_REPO}:${BUILD_NUMBER}-${SHORT_COMMIT} ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+        echo "Tagging image with ECR name..."
+        docker tag unset-repo/unset-image-name:latest \
+          ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+
+        docker tag unset-repo/unset-image-name:latest \
+          ${ECR_REGISTRY}/${ECR_REPO}:latest
         '''
       }
     }
+
 
 
     stage('Trivy Security Scan') {
