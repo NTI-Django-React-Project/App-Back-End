@@ -255,7 +255,7 @@ END
       }
     }
 
-
+  }
 
   post {
     always {
