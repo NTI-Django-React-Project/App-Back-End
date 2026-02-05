@@ -216,44 +216,69 @@ END
  
 
 
-    stage('Kaniko Build') {
-      steps {
-        sh '''
-        echo "Building Docker image with Kaniko..."
-        docker run --rm \
-          -v $(pwd)/${BACKEND_DIR}:/workspace \
-          gcr.io/kaniko-project/executor \
-          --context=/workspace \
-          --dockerfile=/workspace/Dockerfile \
-          --destination=${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} \
-          --destination=${ECR_REGISTRY}/${ECR_REPO}:latest \
-          --no-push
-        
-        echo "Docker image built successfully"
-        '''
-      }
+stage('Kaniko Build') {
+  steps {
+    sh '''
+    echo "Building Docker image with Kaniko (saving to tar)..."
+    docker run --rm \
+      -v $(pwd)/${BACKEND_DIR}:/workspace \
+      -v $(pwd)/kaniko-cache:/cache \
+      gcr.io/kaniko-project/executor:latest \
+      --context=/workspace \
+      --dockerfile=/workspace/Dockerfile \
+      --destination=${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} \
+      --destination=${ECR_REGISTRY}/${ECR_REPO}:latest \
+      --tarPath=/workspace/${ECR_REPO}.tar \
+      --cache=true
+
+    echo "Docker image saved to ${ECR_REPO}.tar"
+    '''
+  }
+}
+
+stage('Load Image for Trivy Scan') {
+  steps {
+    sh '''
+    echo "Loading Docker image from tar for Trivy scan..."
+    docker load -i ${BACKEND_DIR}/${ECR_REPO}.tar
+    '''
+  }
+}
+
+stage('Trivy Security Scan') {
+  steps {
+    sh '''
+    echo "Scanning Docker image for vulnerabilities..."
+    docker run --rm \
+      -v /var/run/docker.sock:/var/run/docker.sock \
+      aquasec/trivy:latest image \
+      --severity HIGH,CRITICAL \
+      --exit-code 1 \
+      ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+    echo "Security scan passed"
+    '''
+  }
+}
+
+stage('Push to ECR') {
+  steps {
+    withCredentials([[
+      $class: 'AmazonWebServicesCredentialsBinding',
+      credentialsId: 'aws-ecr-creds'
+    ]]) {
+      sh '''
+      echo "Logging into ECR..."
+      aws ecr get-login-password --region ${AWS_REGION} | \
+        docker login --username AWS --password-stdin ${ECR_REGISTRY}
+
+      echo "Pushing Docker images..."
+      docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+      docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+      echo "Image pushed successfully"
+      '''
     }
-
-    stage('Push to ECR') {
-      steps {
-        withCredentials([[
-          $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: 'aws-ecr-creds'
-        ]]) {
-          sh '''
-          echo "Logging into ECR..."
-          aws ecr get-login-password --region ${AWS_REGION} | \
-            docker login --username AWS --password-stdin ${ECR_REGISTRY}
-
-          echo "Pushing Docker images..."
-          docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-          docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
-
-          echo "Image pushed successfully"
-          '''
-        }
-      }
-    }
+  }
+}
 
   }
 
