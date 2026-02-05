@@ -212,17 +212,20 @@ END
       }
     }
 
+
     stage('OWASP Dependency Check') {
       steps {
         dir("${BACKEND_DIR}") {
           sh '''
           echo "Running OWASP Dependency-Check scan..."
+	  mkdir -p owasp-report
 
           docker run --rm \
             -v $(pwd):/src \
             -v /opt/dependency-check:/usr/share/dependency-check/data \
             owasp/dependency-check:latest \
             --scan /src \
+  	    --enableExperimental \
             --format ALL \
             --out /src/owasp-report \
             --disableAssembly \
