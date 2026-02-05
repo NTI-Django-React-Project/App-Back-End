@@ -234,23 +234,28 @@ END
       }
     }
 
-
-
     stage('Push to ECR') {
       steps {
-        sh '''
-        echo "Pushing Docker image to ECR..."
-        aws ecr get-login-password --region ${AWS_REGION} | \
-          docker login --username AWS --password-stdin ${ECR_REGISTRY}
+        withCredentials([[
+          $class: 'AmazonWebServicesCredentialsBinding',
+          credentialsId: 'aws-ecr-creds'
+        ]]) {
+          sh '''
+          echo "Logging into ECR..."
+          aws ecr get-login-password --region ${AWS_REGION} | \
+            docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-        docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-        docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
-        
-        echo "Image pushed successfully"
-        '''
+          echo "Pushing Docker images..."
+          docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+          docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+
+          echo "Image pushed successfully"
+          '''
+        }
       }
     }
-  }
+
+
 
   post {
     always {
