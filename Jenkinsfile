@@ -201,16 +201,20 @@ END
       }
     }
 
+
     stage('SonarQube Analysis') {
       steps {
         dir("${BACKEND_DIR}") {
           withSonarQubeEnv('sonar') {
-            sh 'sonar-scanner'
+            sh """
+              ${tool 'SonarScanner'}/bin/sonar-scanner
+            """
           }
         }
       }
     }
  
+
     stage('Quality Gate') {
       steps {
         timeout(time: 5, unit: 'MINUTES') {
