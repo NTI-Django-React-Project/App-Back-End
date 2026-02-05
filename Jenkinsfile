@@ -45,8 +45,7 @@ pipeline {
           postgres:15
 
         echo "Waiting for PostgreSQL to be ready..."
-        for i in {1..30}
-        do
+        for i in {1..30}; do
             if docker exec test-db pg_isready -U ${DB_USER} > /dev/null 2>&1; then
               echo "PostgreSQL is ready!"
               break
@@ -54,7 +53,7 @@ pipeline {
             echo "Waiting for PostgreSQL... attempt $i/30"
             sleep 2
         done
-        
+
         echo "Final check..."
         docker exec test-db pg_isready -U ${DB_USER}
         '''
@@ -82,7 +81,7 @@ pipeline {
           sh '''
           echo "Testing database connection..."
           . venv/bin/activate
-          
+
           python << END
 import psycopg2
 
@@ -144,7 +143,7 @@ END
 
           echo "Checking migration status..."
           python manage.py showmigrations
-          
+
           echo "Listing all migration files..."
           find . -path "*/migrations/*.py" -not -name "__init__.py"
           '''
@@ -201,7 +200,6 @@ END
       }
     }
 
-
     stage('SonarQube Analysis') {
       steps {
         dir("${BACKEND_DIR}") {
@@ -213,80 +211,78 @@ END
         }
       }
     }
- 
 
+    stage('Kaniko Build (to tar)') {
+      steps {
+        sh '''
+        echo "Building Docker image with Kaniko (saving to tar)..."
+        docker run --rm \
+          -v $(pwd)/${BACKEND_DIR}:/workspace \
+          -v $(pwd)/kaniko-cache:/cache \
+          gcr.io/kaniko-project/executor:latest \
+          --context=/workspace \
+          --dockerfile=/workspace/Dockerfile \
+          --tarPath=/workspace/${ECR_REPO}.tar \
+          --cache=true \
+          --no-push
 
-stage('Kaniko Build') {
-  steps {
-    sh '''
-    echo "Building Docker image with Kaniko (saving to tar)..."
-    docker run --rm \
-      -v $(pwd)/${BACKEND_DIR}:/workspace \
-      -v $(pwd)/kaniko-cache:/cache \
-      gcr.io/kaniko-project/executor:latest \
-      --context=/workspace \
-      --dockerfile=/workspace/Dockerfile \
-      --destination=${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} \
-      --destination=${ECR_REGISTRY}/${ECR_REPO}:latest \
-      --tarPath=/workspace/${ECR_REPO}.tar \
-      --cache=true
-
-    echo "Docker image saved to ${ECR_REPO}.tar"
-    '''
-  }
-}
-
-stage('Load Image for Trivy Scan') {
-  steps {
-    sh '''
-    echo "Loading Docker image from tar for Trivy scan..."
-    docker load -i ${BACKEND_DIR}/${ECR_REPO}.tar
-    '''
-  }
-}
-
-stage('Trivy Security Scan') {
-  steps {
-    sh '''
-    echo "Scanning Docker image for vulnerabilities..."
-    docker run --rm \
-      -v /var/run/docker.sock:/var/run/docker.sock \
-      aquasec/trivy:latest image \
-      --severity HIGH,CRITICAL \
-      --exit-code 1 \
-      ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-    echo "Security scan passed"
-    '''
-  }
-}
-
-stage('Push to ECR') {
-  steps {
-    withCredentials([[
-      $class: 'AmazonWebServicesCredentialsBinding',
-      credentialsId: 'aws-ecr-creds'
-    ]]) {
-      sh '''
-      echo "Logging into ECR..."
-      aws ecr get-login-password --region ${AWS_REGION} | \
-        docker login --username AWS --password-stdin ${ECR_REGISTRY}
-
-      echo "Pushing Docker images..."
-      docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-      docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
-      echo "Image pushed successfully"
-      '''
+        echo "Docker image saved to ${ECR_REPO}.tar"
+        '''
+      }
     }
-  }
-}
 
-  }
+    stage('Load Image for Trivy Scan') {
+      steps {
+        sh '''
+        echo "Loading Docker image from tar for Trivy scan..."
+        docker load -i ${BACKEND_DIR}/${ECR_REPO}.tar
+        '''
+      }
+    }
+
+    stage('Trivy Security Scan') {
+      steps {
+        sh '''
+        echo "Scanning Docker image for vulnerabilities..."
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          aquasec/trivy:latest image \
+          --severity HIGH,CRITICAL \
+          --exit-code 1 \
+          ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+        echo "Security scan passed"
+        '''
+      }
+    }
+
+    stage('Push to ECR') {
+      steps {
+        withCredentials([[
+          $class: 'AmazonWebServicesCredentialsBinding',
+          credentialsId: 'aws-ecr-creds'
+        ]]) {
+          sh '''
+          echo "Logging into ECR..."
+          aws ecr get-login-password --region ${AWS_REGION} | \
+            docker login --username AWS --password-stdin ${ECR_REGISTRY}
+
+          echo "Pushing Docker images..."
+          docker tag ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+          docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+          docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+          echo "Image pushed successfully"
+          '''
+        }
+      }
+    }
+
+  } // stages
 
   post {
     always {
       echo "Cleaning up resources..."
       sh 'docker rm -f test-db || true'
-      
+
       script {
         try {
           publishHTML([
@@ -301,7 +297,7 @@ stage('Push to ECR') {
           echo "Could not publish coverage report: ${e.message}"
         }
       }
-      
+
       cleanWs()
     }
 
