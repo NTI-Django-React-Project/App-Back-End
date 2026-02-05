@@ -201,22 +201,31 @@ END
       }
     }
 
+   # stage('SonarQube Analysis') {
+   #   steps {
+   #     dir("${BACKEND_DIR}") {
+   #       withSonarQubeEnv('SonarScanner') {
+   #         sh '''
+   #         echo "Running SonarQube analysis..."
+   #         sonar-scanner \
+   #           -Dsonar.projectKey=gig-router-backend \
+   #           -Dsonar.sources=. \
+   #           -Dsonar.python.coverage.reportPaths=coverage.xml
+   #         '''
+   #       }
+   #     }
+   #   }
+   # }
     stage('SonarQube Analysis') {
       steps {
         dir("${BACKEND_DIR}") {
-          withSonarQubeEnv('SonarScanner') {
-            sh '''
-            echo "Running SonarQube analysis..."
-            sonar-scanner \
-              -Dsonar.projectKey=gig-router-backend \
-              -Dsonar.sources=. \
-              -Dsonar.python.coverage.reportPaths=coverage.xml
-            '''
+          withSonarQubeEnv('sonar') {
+            sh 'sonar-scanner'
           }
         }
       }
     }
-
+ 
     stage('Quality Gate') {
       steps {
         timeout(time: 5, unit: 'MINUTES') {
