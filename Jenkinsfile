@@ -223,7 +223,7 @@ END
           --context=/workspace \
           --dockerfile=/workspace/Dockerfile \
           --tarPath=/workspace/${ECR_REPO}.tar \
-          --cache=true \
+	  --cache-dir=/cache \
           --no-push
 
         echo "Docker image saved to ${ECR_REPO}.tar"
