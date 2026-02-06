@@ -231,7 +231,11 @@ END
 
           docker run --rm \
             -v $(pwd):/src \
-	    -v $(pwd)/.dependency-check-data:/usr/share/dependency-check/data \
+	    // -v $(pwd)/.dependency-check-data:/usr/share/dependency-check/data \
+		-v $(pwd)/.dependency-check-data-${BUILD_NUMBER}:/usr/share/dependency-check/data
+
+
+		
             owasp/dependency-check:latest \
             --scan /src \
   	    --enableExperimental \
