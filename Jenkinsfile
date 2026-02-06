@@ -250,33 +250,47 @@ END
   //     }
   //   }
 
-	stage('OWASP Dependency Check') {
-	  steps {
-	    dir("${BACKEND_DIR}") {
-	      sh '''
-	      echo "Running OWASP Dependency-Check scan..."
-	      mkdir -p owasp-report
-	      mkdir -p .dependency-check-data
+	// stage('OWASP Dependency Check') {
+	//   steps {
+	//     dir("${BACKEND_DIR}") {
+	//       sh '''
+	//       echo "Running OWASP Dependency-Check scan..."
+	//       mkdir -p owasp-report
+	//       mkdir -p .dependency-check-data
 	
-	      docker run --rm \
-	        -v $(pwd):/src \
-	        -v $(pwd)/.dependency-check-data:/usr/share/dependency-check/data \
-	        owasp/dependency-check:latest \
-	        --scan /src \
-	        --enableExperimental \
-	        --format ALL \
-	        --out /src/owasp-report \
-	        --disableAssembly \
-	        --failOnCVSS 7
+	//       docker run --rm \
+	//         -v $(pwd):/src \
+	//         -v $(pwd)/.dependency-check-data:/usr/share/dependency-check/data \
+	//         owasp/dependency-check:latest \
+	//         --scan /src \
+	//         --enableExperimental \
+	//         --format ALL \
+	//         --out /src/owasp-report \
+	//         --disableAssembly \
+	//         --failOnCVSS 7
 	
-	      echo "OWASP scan completed"
-	      '''
-	    }
-	  }
+	//       echo "OWASP scan completed"
+	//       '''
+	//     }
+	//   }
+	// }
+
+
+    stage('OWASP Dependency Check') {
+		steps {
+			dir('spring-boot-app') {
+				withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_API_KEY')]) {
+					dependencyCheck additionalArguments: """
+					  --scan .
+					  --nvdApiKey ${NVD_API_KEY}
+					  --format XML
+					  --out target
+					  --failOnCVSS 9
+					""", odcInstallation: 'OWASP-Dependency-Check'
+				}
+			}
+		}
 	}
-
-
-
     stage('Kaniko Build (to tar)') {
       steps {
         sh '''
