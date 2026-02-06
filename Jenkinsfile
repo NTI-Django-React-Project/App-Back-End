@@ -293,6 +293,25 @@ END
 	// }
 
 
+	// stage('OWASP Dependency Check') {
+	//   steps {
+	//     dir("${BACKEND_DIR}") {
+	//       withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_API_KEY')]) {
+	//         withEnv(["NVD_API_KEY=${NVD_API_KEY}"]) {
+	//           dependencyCheck additionalArguments: '''
+	//             --scan .
+	//             --nvdApiKey $NVD_API_KEY
+	//             --format XML
+	//             --out target
+	//             --failOnCVSS 9
+	//           ''', odcInstallation: 'OWASP-Dependency-Check'     
+	//         }
+	//       }
+	//     }
+	//   }
+	// }
+
+
 	stage('OWASP Dependency Check') {
 	  steps {
 	    dir("${BACKEND_DIR}") {
@@ -310,6 +329,7 @@ END
 	    }
 	  }
 	}
+
 
 	  
     stage('Kaniko Build (to tar)') {
