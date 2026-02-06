@@ -222,33 +222,33 @@ END
 
 
 
-    stage('OWASP Dependency Check') {
-      steps {
-        dir("${BACKEND_DIR}") {
-          sh '''
-          echo "Running OWASP Dependency-Check scan..."
-	  mkdir -p owasp-report
+  //   stage('OWASP Dependency Check') {
+  //     steps {
+  //       dir("${BACKEND_DIR}") {
+  //         sh '''
+  //         echo "Running OWASP Dependency-Check scan..."
+	 //  mkdir -p owasp-report
 
-          docker run --rm \
-            -v $(pwd):/src \
-	    // -v $(pwd)/.dependency-check-data:/usr/share/dependency-check/data \
-		-v $(pwd)/.dependency-check-data-${BUILD_NUMBER}:/usr/share/dependency-check/data
+  //         docker run --rm \
+  //           -v $(pwd):/src \
+	 //    // -v $(pwd)/.dependency-check-data:/usr/share/dependency-check/data \
+		// -v $(pwd)/.dependency-check-data-${BUILD_NUMBER}:/usr/share/dependency-check/data
 
 
 		
-            owasp/dependency-check:latest \
-            --scan /src \
-  	    --enableExperimental \
-            --format ALL \
-            --out /src/owasp-report \
-            --disableAssembly \
-            --failOnCVSS 7
+  //           owasp/dependency-check:latest \
+  //           --scan /src \
+  // 	    --enableExperimental \
+  //           --format ALL \
+  //           --out /src/owasp-report \
+  //           --disableAssembly \
+  //           --failOnCVSS 7
 
-          echo "OWASP scan completed"
-          '''
-        }
-      }
-    }
+  //         echo "OWASP scan completed"
+  //         '''
+  //       }
+  //     }
+  //   }
 
 
     stage('Kaniko Build (to tar)') {
