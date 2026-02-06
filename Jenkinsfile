@@ -295,7 +295,7 @@ END
 
 	stage('OWASP Dependency Check') {
 	  steps {
-	    dir('spring-boot-app') {
+	    dir("${BACKEND_DIR}") {
 	      withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_API_KEY')]) {
 	        withEnv(["NVD_API_KEY=${NVD_API_KEY}"]) {
 	          dependencyCheck additionalArguments: '''
