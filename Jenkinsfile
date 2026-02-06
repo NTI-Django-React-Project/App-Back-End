@@ -311,25 +311,32 @@ END
 	//   }
 	// }
 
+    stage('OWASP Dependency Check') {
+      environment {
+        NVD_API_KEY = credentials('nvd-api-key')
+      }
+      steps {
+        dir("${BACKEND_DIR}") {
+          sh '''
+            mkdir -p owasp-report
 
-	stage('OWASP Dependency Check') {
-	  steps {
-	    dir("${BACKEND_DIR}") {
-	      withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_API_KEY')]) {
-	        withEnv(["NVD_API_KEY=${NVD_API_KEY}"]) {
-	          dependencyCheck additionalArguments: '''
-	            --scan .
-	            --nvdApiKey $NVD_API_KEY
-	            --format XML
-	            --out target
-	            --failOnCVSS 9
-	          ''', odcInstallation: 'OWASP-Dependency-Check'
-	        }
-	      }
-	    }
-	  }
-	}
-
+            docker run --rm \
+              -v $(pwd):/src \
+              -v owasp-data:/usr/share/dependency-check/data \
+              owasp/dependency-check:latest \
+              --scan /src \
+              --format XML \
+              --out /src/owasp-report \
+              --nvdApiKey $NVD_API_KEY
+          '''
+        }
+      }
+      post {
+        always {
+          archiveArtifacts artifacts: "${BACKEND_DIR}/owasp-report/**", fingerprint: true
+        }
+      }
+    }
 
 	  
     stage('Kaniko Build (to tar)') {
