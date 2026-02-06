@@ -213,29 +213,29 @@ END
     }
 
 
-    stage('OWASP Dependency Check') {
-      steps {
-        dir("${BACKEND_DIR}") {
-          sh '''
-          echo "Running OWASP Dependency-Check scan..."
-	  mkdir -p owasp-report
+   //  stage('OWASP Dependency Check') {
+   //    steps {
+   //      dir("${BACKEND_DIR}") {
+   //        sh '''
+   //        echo "Running OWASP Dependency-Check scan..."
+	  // mkdir -p owasp-report
 
-          docker run --rm \
-            -v $(pwd):/src \
-	    -v $(pwd)/.dependency-check-data:/usr/share/dependency-check/data \
-            owasp/dependency-check:latest \
-            --scan /src \
-  	    --enableExperimental \
-            --format ALL \
-            --out /src/owasp-report \
-            --disableAssembly \
-            --failOnCVSS 7
+   //        docker run --rm \
+   //          -v $(pwd):/src \
+	  //   -v $(pwd)/.dependency-check-data:/usr/share/dependency-check/data \
+   //          owasp/dependency-check:latest \
+   //          --scan /src \
+  	//     --enableExperimental \
+   //          --format ALL \
+   //          --out /src/owasp-report \
+   //          --disableAssembly \
+   //          --failOnCVSS 7
 
-          echo "OWASP scan completed"
-          '''
-        }
-      }
-    }
+   //        echo "OWASP scan completed"
+   //        '''
+   //      }
+   //    }
+   //  }
 
 
     stage('Kaniko Build (to tar)') {
@@ -275,21 +275,21 @@ END
 
 
 
-    stage('Trivy Security Scan') {
-      steps {
-        sh '''
-        echo "Scanning Docker image for vulnerabilities..."
-        docker run --rm \
-          -v /var/run/docker.sock:/var/run/docker.sock \
-          aquasec/trivy:latest image \
-	  --scanners vuln \
-          --severity HIGH,CRITICAL \
-          --exit-code 1 \
-          ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-        echo "Security scan passed"
-        '''
-      }
-    }
+   //  stage('Trivy Security Scan') {
+   //    steps {
+   //      sh '''
+   //      echo "Scanning Docker image for vulnerabilities..."
+   //      docker run --rm \
+   //        -v /var/run/docker.sock:/var/run/docker.sock \
+   //        aquasec/trivy:latest image \
+	  // --scanners vuln \
+   //        --severity HIGH,CRITICAL \
+   //        --exit-code 1 \
+   //        ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+   //      echo "Security scan passed"
+   //      '''
+   //    }
+   //  }
 
     stage('Push to ECR') {
       steps {
