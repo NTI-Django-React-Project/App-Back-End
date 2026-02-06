@@ -276,21 +276,42 @@ END
 	// }
 
 
-    stage('OWASP Dependency Check') {
-		steps {
-			dir('spring-boot-app') {
-				withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_API_KEY')]) {
-					dependencyCheck additionalArguments: """
-					  --scan .
-					  --nvdApiKey ${NVD_API_KEY}
-					  --format XML
-					  --out target
-					  --failOnCVSS 9
-					""", odcInstallation: 'OWASP-Dependency-Check'
-				}
-			}
-		}
+ //    stage('OWASP Dependency Check') {
+	// 	steps {
+	// 		dir('spring-boot-app') {
+	// 			withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_API_KEY')]) {
+	// 				dependencyCheck additionalArguments: """
+	// 				  --scan .
+	// 				  --nvdApiKey ${NVD_API_KEY}
+	// 				  --format XML
+	// 				  --out target
+	// 				  --failOnCVSS 9
+	// 				""", odcInstallation: 'OWASP-Dependency-Check'
+	// 			}
+	// 		}
+	// 	}
+	// }
+
+
+	stage('OWASP Dependency Check') {
+	  steps {
+	    dir('spring-boot-app') {
+	      withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_API_KEY')]) {
+	        withEnv(["NVD_API_KEY=${NVD_API_KEY}"]) {
+	          dependencyCheck additionalArguments: '''
+	            --scan .
+	            --nvdApiKey $NVD_API_KEY
+	            --format XML
+	            --out target
+	            --failOnCVSS 9
+	          ''', odcInstallation: 'OWASP-Dependency-Check'
+	        }
+	      }
+	    }
+	  }
 	}
+
+	  
     stage('Kaniko Build (to tar)') {
       steps {
         sh '''
