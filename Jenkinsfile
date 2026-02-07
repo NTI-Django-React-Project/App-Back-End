@@ -262,15 +262,6 @@ END
 			  --format XML \
 			  --out /src/owasp-report \
 			  --nvdApiKey $NVD_API_KEY
-
-            // docker run --rm \
-            //   -v $(pwd):/src \
-            //   -v owasp-data:/usr/share/dependency-check/data \
-            //   owasp/dependency-check:latest \
-            //   --scan /src \
-            //   --format XML \
-            //   --out /src/owasp-report \
-            //   --nvdApiKey $NVD_API_KEY
           '''
         }
       }
