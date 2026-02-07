@@ -220,31 +220,6 @@ END
       }
     }
 
-	// stage('OWASP Dependency Check') {
-	//   steps {
-	//     dir("${BACKEND_DIR}") {
-	//       sh '''
-	//       echo "Running OWASP Dependency-Check scan..."
-	//       mkdir -p owasp-report
-	//       mkdir -p .dependency-check-data
-	
-	//       docker run --rm \
-	//         -v $(pwd):/src \
-	//         -v $(pwd)/.dependency-check-data:/usr/share/dependency-check/data \
-	//         owasp/dependency-check:latest \
-	//         --scan /src \
-	//         --enableExperimental \
-	//         --format ALL \
-	//         --out /src/owasp-report \
-	//         --disableAssembly \
-	//         --failOnCVSS 7
-	
-	//       echo "OWASP scan completed"
-	//       '''
-	//     }
-	//   }
-	// }
-
     stage('OWASP Dependency Check') {
       environment {
         NVD_API_KEY = credentials('nvd-api-key')
@@ -345,40 +320,128 @@ END
         }
       }
     }
-	stage('Update Kubernetes Manifest') {
-      steps {
-        withCredentials([usernamePassword(
-          credentialsId: 'github-creds',
-          usernameVariable: 'GIT_USERNAME',
-          passwordVariable: 'GIT_PASSWORD'
-        )]) {
-          sh '''
-          echo "Cloning GitOps repository..."
-          rm -rf gitops-repo
-          git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/YOUR-ORG/k8s-manifests.git gitops-repo
-          cd gitops-repo
+	// stage('Update Kubernetes Manifest') {
+ //      steps {
+ //        withCredentials([usernamePassword(
+ //          credentialsId: 'github-creds',
+ //          usernameVariable: 'moessam634',
+ //          passwordVariable: 'GIT_PASSWORD'
+ //        )]) {
+ //          sh '''
+ //          echo "Cloning GitOps repository..."
+ //          rm -rf gitops-repo
+ //          git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/YOUR-ORG/k8s-manifests.git gitops-repo
+ //          cd gitops-repo
           
-          git config user.name "Jenkins CI"
-          git config user.email "jenkins@yourdomain.com"
+ //          git config user.name "Jenkins CI"
+ //          git config user.email "jenkins@yourdomain.com"
           
-          git checkout ${GITOPS_BRANCH}
+ //          git checkout ${GITOPS_BRANCH}
           
-          echo "Updating image tag in deployment manifest..."
-          sed -i "s|image: ${ECR_REGISTRY}/${ECR_REPO}:.*|image: ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}|g" ${MANIFEST_PATH}
+ //          echo "Updating image tag in deployment manifest..."
+ //          sed -i "s|image: ${ECR_REGISTRY}/${ECR_REPO}:.*|image: ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}|g" ${MANIFEST_PATH}
           
-          echo "Committing and pushing changes..."
-          git add ${MANIFEST_PATH}
-          git commit -m "Update backend image to ${IMAGE_TAG} - Build #${BUILD_NUMBER}" || echo "No changes to commit"
-          git push origin ${GITOPS_BRANCH}
+ //          echo "Committing and pushing changes..."
+ //          git add ${MANIFEST_PATH}
+ //          git commit -m "Update backend image to ${IMAGE_TAG} - Build #${BUILD_NUMBER}" || echo "No changes to commit"
+ //          git push origin ${GITOPS_BRANCH}
           
-          echo "Manifest updated successfully!"
-          cd ..
-          rm -rf gitops-repo
-          '''
-        }
-      }
-    }
+ //          echo "Manifest updated successfully!"
+ //          cd ..
+ //          rm -rf gitops-repo
+ //          '''
+ //        }
+ //      }
+ //    }
 
+	// stage('Update K8s Deployment') {
+	//   when {
+	//     branch 'main'  // Only update on main branch
+	//   }
+	//   steps {
+	//     withCredentials([usernamePassword(
+	//       credentialsId: 'github-creds',
+	//       usernameVariable: 'GIT_USERNAME',
+	//       passwordVariable: 'GIT_TOKEN'
+	//     )]) {
+	//       sh '''
+	//         echo "Cloning K8s config repository..."
+	//         rm -rf k8s-config
+	//         git clone https://${GIT_TOKEN}@github.com/yourorg/k8s-config.git
+	//         cd k8s-config
+	        
+	//         DEPLOYMENT_FILE="apps/gig-router-backend/deployment.yaml"
+	//         NEW_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+	        
+	//         echo "Updating deployment image to: ${NEW_IMAGE}"
+	//         sed -i "s|image:.*${ECR_REPO}.*|image: ${NEW_IMAGE}|g" ${DEPLOYMENT_FILE}
+	        
+	//         git config user.email "ci@gig-router.com"
+	//         git config user.name "Jenkins CI Bot"
+	//         git add ${DEPLOYMENT_FILE}
+	//         git diff --staged
+	//         git commit -m "ci: update gig-router-backend to ${IMAGE_TAG}
+	
+	//         Build: ${BUILD_NUMBER}
+	//         Commit: ${SHORT_COMMIT}"
+	//         git push origin main
+	        
+	//         echo "✓ Deployment manifest updated successfully"
+	//       '''
+	//     }
+	//   }
+	// }
+	stage('Update K8s Deployment') {
+	  when {
+	    branch 'main'
+	  }
+	  steps {
+	    withCredentials([string(credentialsId: 'github-creds', variable: 'GITHUB_TOKEN')]) {
+	      sh '''
+	        echo "Syncing with K8s manifests repository..."
+	        
+	        # If already cloned, just update it
+	        if [ -d "k8s-manifests/.git" ]; then
+	          echo "Repository already exists, updating..."
+	          cd k8s-manifests
+	          git fetch origin main
+	          git reset --hard origin/main  # Force sync with GitHub
+	          git clean -fd  # Remove any local changes
+	          echo "✓ Synced with latest from GitHub"
+	        else
+	          echo "First time clone..."
+	          git clone https://${GITHUB_TOKEN}@github.com/NTI-Django-React-Project/k8s-manifests.git
+	          cd k8s-manifests
+	          echo "✓ Cloned from GitHub"
+	        fi
+	        
+	        echo "All your manifests are here:"
+	        ls -la
+	        ls -la backend/
+	        
+	        DEPLOYMENT_FILE="backend/deployment.yaml"
+	        NEW_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+	        
+	        echo "Current image:"
+	        grep "image:" ${DEPLOYMENT_FILE}
+	        
+	        echo "Updating to: ${NEW_IMAGE}"
+	        sed -i "s|image:.*backend.*|image: ${NEW_IMAGE}|g" ${DEPLOYMENT_FILE}
+	        
+	        echo "New image:"
+	        grep "image:" ${DEPLOYMENT_FILE}
+	        
+	        git config user.email "jenkins-ci@nti-project.com"
+	        git config user.name "Jenkins CI Bot"
+	        git add ${DEPLOYMENT_FILE}
+	        git commit -m "ci: update backend to ${IMAGE_TAG} [Build: ${BUILD_NUMBER}]"
+	        git push https://${GITHUB_TOKEN}@github.com/NTI-Django-React-Project/k8s-manifests.git main
+	        
+	        echo "✓ Deployment updated successfully!"
+	      '''
+	    }
+	  }
+	}
   } // stages
 
   post {
