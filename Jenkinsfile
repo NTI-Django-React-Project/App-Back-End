@@ -354,6 +354,39 @@ END
         }
       }
     }
+	stage('Update Kubernetes Manifest') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'github-creds',
+          usernameVariable: 'GIT_USERNAME',
+          passwordVariable: 'GIT_PASSWORD'
+        )]) {
+          sh '''
+          echo "Cloning GitOps repository..."
+          rm -rf gitops-repo
+          git clone https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/YOUR-ORG/k8s-manifests.git gitops-repo
+          cd gitops-repo
+          
+          git config user.name "Jenkins CI"
+          git config user.email "jenkins@yourdomain.com"
+          
+          git checkout ${GITOPS_BRANCH}
+          
+          echo "Updating image tag in deployment manifest..."
+          sed -i "s|image: ${ECR_REGISTRY}/${ECR_REPO}:.*|image: ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}|g" ${MANIFEST_PATH}
+          
+          echo "Committing and pushing changes..."
+          git add ${MANIFEST_PATH}
+          git commit -m "Update backend image to ${IMAGE_TAG} - Build #${BUILD_NUMBER}" || echo "No changes to commit"
+          git push origin ${GITOPS_BRANCH}
+          
+          echo "Manifest updated successfully!"
+          cd ..
+          rm -rf gitops-repo
+          '''
+        }
+      }
+    }
 
   } // stages
 
