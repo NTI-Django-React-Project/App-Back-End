@@ -253,15 +253,24 @@ END
         dir("${BACKEND_DIR}") {
           sh '''
             mkdir -p owasp-report
+		    docker run --rm \
+			  --user root \
+			  -v $(pwd):/src \
+			  -v owasp-data:/usr/share/dependency-check/data \
+			  owasp/dependency-check:latest \
+			  --scan /src \
+			  --format XML \
+			  --out /src/owasp-report \
+			  --nvdApiKey $NVD_API_KEY
 
-            docker run --rm \
-              -v $(pwd):/src \
-              -v owasp-data:/usr/share/dependency-check/data \
-              owasp/dependency-check:latest \
-              --scan /src \
-              --format XML \
-              --out /src/owasp-report \
-              --nvdApiKey $NVD_API_KEY
+            // docker run --rm \
+            //   -v $(pwd):/src \
+            //   -v owasp-data:/usr/share/dependency-check/data \
+            //   owasp/dependency-check:latest \
+            //   --scan /src \
+            //   --format XML \
+            //   --out /src/owasp-report \
+            //   --nvdApiKey $NVD_API_KEY
           '''
         }
       }
