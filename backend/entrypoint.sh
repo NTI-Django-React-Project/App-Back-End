@@ -2,35 +2,77 @@
 set -e
 
 echo "Starting Django application..."
+
+# -----------------------------
+# Wait for PostgreSQL
+# -----------------------------
 echo "Waiting for database connection..."
 
-python << END
-import time, psycopg2, os
+python << 'EOF'
+import sys
+import time
+import psycopg2
+from os import environ
 
-for i in range(30):
+max_retries = 30
+retry_interval = 2
+
+db_config = {
+    "dbname": environ.get("DB_NAME", "postgres"),
+    "user": environ.get("DB_USER", "postgres"),
+    "password": environ.get("DB_PASSWORD", ""),
+    "host": environ.get("DB_HOST", "localhost"),
+    "port": environ.get("DB_PORT", "5432"),
+}
+
+for i in range(1, max_retries + 1):
     try:
-        psycopg2.connect(
-            dbname=os.getenv("DB_NAME"),
-            user=os.getenv("DB_USERNAME"),
-            password=os.getenv("DB_PASSWORD"),
-            host=os.getenv("DB_HOST"),
-            port=os.getenv("DB_PORT"),
-        )
+        conn = psycopg2.connect(**db_config)
+        conn.close()
         print("Database is ready!")
-        break
-    except Exception as e:
-        print(f"DB not ready ({i+1}/30):", e)
-        time.sleep(2)
-else:
-    print("Database not reachable, exiting.")
-    exit(1)
-END
+        sys.exit(0)
+    except psycopg2.OperationalError as e:
+        print(f"Database unavailable ({i}/{max_retries}) – retrying...")
+        time.sleep(retry_interval)
 
-echo "Running migrations..."
+print("ERROR: Could not connect to the database.")
+sys.exit(1)
+EOF
+
+# -----------------------------
+# Django setup
+# -----------------------------
+echo "Running database migrations..."
 python manage.py migrate --noinput
 
 echo "Collecting static files..."
 python manage.py collectstatic --noinput || true
 
+# -----------------------------
+# Optional: create superuser
+# (SAFE for Kubernetes restarts)
+# -----------------------------
+if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && \
+   [ -n "$DJANGO_SUPERUSER_PASSWORD" ] && \
+   [ -n "$DJANGO_SUPERUSER_EMAIL" ]; then
+
+  echo "Ensuring superuser exists..."
+  python manage.py shell << EOF
+from django.contrib.auth import get_user_model
+User = get_user_model()
+
+username = "$DJANGO_SUPERUSER_USERNAME"
+email = "$DJANGO_SUPERUSER_EMAIL"
+password = "$DJANGO_SUPERUSER_PASSWORD"
+
+if not User.objects.filter(username=username).exists():
+    User.objects.create_superuser(username, email, password)
+    print("Superuser created.")
+else:
+    print("Superuser already exists.")
+EOF
+fi
+
+echo "Starting application server..."
 exec "$@"
 
