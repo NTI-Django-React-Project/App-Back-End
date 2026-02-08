@@ -3,9 +3,6 @@ set -e
 
 echo "Starting Django application..."
 
-# -----------------------------
-# Wait for PostgreSQL
-# -----------------------------
 echo "Waiting for database connection..."
 
 python << 'EOF'
@@ -31,7 +28,7 @@ for i in range(1, max_retries + 1):
         conn.close()
         print("Database is ready!")
         sys.exit(0)
-    except psycopg2.OperationalError as e:
+    except psycopg2.OperationalError:
         print(f"Database unavailable ({i}/{max_retries}) – retrying...")
         time.sleep(retry_interval)
 
@@ -39,19 +36,12 @@ print("ERROR: Could not connect to the database.")
 sys.exit(1)
 EOF
 
-# -----------------------------
-# Django setup
-# -----------------------------
 echo "Running database migrations..."
 python manage.py migrate --noinput
 
 echo "Collecting static files..."
 python manage.py collectstatic --noinput || true
 
-# -----------------------------
-# Optional: create superuser
-# (SAFE for Kubernetes restarts)
-# -----------------------------
 if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && \
    [ -n "$DJANGO_SUPERUSER_PASSWORD" ] && \
    [ -n "$DJANGO_SUPERUSER_EMAIL" ]; then
@@ -61,12 +51,12 @@ if [ -n "$DJANGO_SUPERUSER_USERNAME" ] && \
 from django.contrib.auth import get_user_model
 User = get_user_model()
 
-username = "$DJANGO_SUPERUSER_USERNAME"
-email = "$DJANGO_SUPERUSER_EMAIL"
-password = "$DJANGO_SUPERUSER_PASSWORD"
-
-if not User.objects.filter(username=username).exists():
-    User.objects.create_superuser(username, email, password)
+if not User.objects.filter(username="$DJANGO_SUPERUSER_USERNAME").exists():
+    User.objects.create_superuser(
+        "$DJANGO_SUPERUSER_USERNAME",
+        "$DJANGO_SUPERUSER_EMAIL",
+        "$DJANGO_SUPERUSER_PASSWORD"
+    )
     print("Superuser created.")
 else:
     print("Superuser already exists.")
