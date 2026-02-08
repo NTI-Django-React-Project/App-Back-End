@@ -4,7 +4,13 @@ from django.conf import settings
 from django.conf.urls.static import static
 from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from . import health_views
-
+##### add
+from django.urls import path
+from .views import health_check
+#### add
+urlpatterns = [
+    path("api/health/", health_check, name="health_check"),
+]
 urlpatterns = [
     # Health check endpoints
     path('health/', health_views.health_check, name='health_check'),
