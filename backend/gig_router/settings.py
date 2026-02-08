@@ -103,6 +103,7 @@ DATABASES = {
         'CONN_MAX_AGE': 600,  # Keep connections alive for 10 minutes
         'OPTIONS': {
             'connect_timeout': 10,  # Timeout after 10 seconds
+            'sslmode': os.getenv('DB_SSLMODE', 'require'),  # SSL mode from environment
         }
     }
 }
