@@ -13,7 +13,11 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-change-this-in-produc
 DEBUG = config('DEBUG', default=False, cast=bool)
 
 #ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1,backend', cast=lambda v: [s.strip() for s in v.split(',')])
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*').split(',')
+#ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*').split(',')
+ALLOWED_HOSTS = config(
+    'ALLOWED_HOSTS',
+    default='backend-service,backend-service.default,backend-service.default.svc,backend-service.default.svc.cluster.local,localhost,127.0.0.1'
+).split(',')
 # Application definition
 INSTALLED_APPS = [
     'jazzmin',  # Must come before django.contrib.admin
