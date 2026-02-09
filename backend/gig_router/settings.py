@@ -62,6 +62,7 @@ MIDDLEWARE = [
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://98.94.77.253:30080"
 ]
 
 ROOT_URLCONF = 'gig_router.urls'
