@@ -106,7 +106,7 @@ def get_db_password():
     )
 
     response = client.get_secret_value(
-        SecretId="arn:aws:secretsmanager:eu-north-1:231056963705:secret:rds!db-9a832a5c-a53e-4f0b-b0c1-29458543bd76-Yj2RQw"
+        SecretId=os.getenv("DB_SECRET_ARN")
     )
 
     secret = json.loads(response["SecretString"])
