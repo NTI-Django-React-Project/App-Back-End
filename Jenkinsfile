@@ -18,6 +18,7 @@ pipeline {
     DB_PASS = 'test'
     DB_HOST = 'localhost'
     DB_PORT = '5432'
+	DB_SSLMODE = 'disable' 
   }
 
   stages {
@@ -137,6 +138,7 @@ END
           export DB_PASSWORD=${DB_PASS}
           export DB_HOST=${DB_HOST}
           export DB_PORT=${DB_PORT}
+		  echo "DB_SSLMODE=$DB_SSLMODE"
 
           echo "Running makemigrations for all apps..."
           python manage.py makemigrations
