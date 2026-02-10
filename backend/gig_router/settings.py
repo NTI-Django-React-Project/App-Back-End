@@ -16,8 +16,13 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 #ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*').split(',')
 ALLOWED_HOSTS = config(
     'ALLOWED_HOSTS',
-    default='backend-service,backend-service.default,backend-service.default.svc,backend-service.default.svc.cluster.local,localhost,127.0.0.1'
+    default='yassinabuelsheikh.store,.yassinabuelsheikh.store,localhost,127.0.0.1'
 ).split(',')
+ALLOWED_HOSTS += ['*']
+# ALLOWED_HOSTS = config(
+#     'ALLOWED_HOSTS',
+#     default='backend-service,backend-service.default,backend-service.default.svc,backend-service.default.svc.cluster.local,localhost,127.0.0.1'
+# ).split(',')
 # Application definition
 INSTALLED_APPS = [
     'jazzmin',  # Must come before django.contrib.admin
@@ -60,10 +65,10 @@ MIDDLEWARE = [
 
 # CSRF settings for API
 CSRF_TRUSTED_ORIGINS = [
+    "https://yassinabuelsheikh.store",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://98.94.77.253:30080",
-    "https://yassinabuelsheikh.store",
 ]
 
 ROOT_URLCONF = 'gig_router.urls'
