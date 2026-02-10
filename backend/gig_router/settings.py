@@ -1,6 +1,4 @@
 import os
-import json
-import boto3
 from pathlib import Path
 from decouple import config
 
@@ -99,18 +97,6 @@ WSGI_APPLICATION = 'gig_router.wsgi.application'
 #        'PORT': config('DB_PORT', default='5432'),
 #    }
 #}
-def get_db_password():
-    client = boto3.client(
-        "secretsmanager",
-        region_name="eu-north-1"
-    )
-
-    response = client.get_secret_value(
-        SecretId=os.getenv("DB_SECRET_ARN")
-    )
-
-    secret = json.loads(response["SecretString"])
-    return secret["password"]
 
 DATABASES = {
     
@@ -118,8 +104,7 @@ DATABASES = {
         'ENGINE': 'django.db.backends.postgresql',
         'NAME': os.getenv('DB_NAME', 'postgres'),
         'USER': os.getenv('DB_USER', 'postgres'),
-        # 'PASSWORD': os.getenv('DB_PASSWORD', ''),
-        'PASSWORD': get_db_password(),
+        'PASSWORD': os.getenv('DB_PASSWORD'),
         'HOST': os.getenv('DB_HOST', 'localhost'),
         'PORT': os.getenv('DB_PORT', '5432'),
         'CONN_MAX_AGE': 600,  # Keep connections alive for 10 minutes
