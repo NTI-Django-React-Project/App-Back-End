@@ -203,9 +203,9 @@ END
     stage('SonarQube Analysis') {
       steps {
         dir("${BACKEND_DIR}") {
-          withSonarQubeEnv('sonar') {
+          withSonarQubeEnv('mazen-sonerqube') {
             sh """
-              ${tool 'SonarScanner'}/bin/sonar-scanner
+              ${tool 'sonar-scanner'}/bin/sonar-scanner
             """
           }
         }
@@ -222,7 +222,7 @@ END
 
     stage('OWASP Dependency Check') {
       environment {
-        NVD_API_KEY = credentials('nvd-api-key')
+        NVD_API_KEY = credentials('NVD_API_KEY')
       }
       steps {
         dir("${BACKEND_DIR}") {
@@ -393,57 +393,60 @@ END
 	//     }
 	//   }
 	// }
-	stage('Update K8s Deployment') {
-	  when {
-	    branch 'main'
-	  }
-	  steps {
-	    withCredentials([string(credentialsId: 'github-creds', variable: 'GITHUB_TOKEN')]) {
-	      sh '''
-	        echo "Syncing with K8s manifests repository..."
+
+
+	  
+	// stage('Update K8s Deployment') {
+	//   when {
+	//     branch 'main'
+	//   }
+	//   steps {
+	//     withCredentials([string(credentialsId: 'github-creds', variable: 'GITHUB_TOKEN')]) {
+	//       sh '''
+	//         echo "Syncing with K8s manifests repository..."
 	        
-	        # If already cloned, just update it
-	        if [ -d "k8s-manifests/.git" ]; then
-	          echo "Repository already exists, updating..."
-	          cd k8s-manifests
-	          git fetch origin main
-	          git reset --hard origin/main  # Force sync with GitHub
-	          git clean -fd  # Remove any local changes
-	          echo "✓ Synced with latest from GitHub"
-	        else
-	          echo "First time clone..."
-	          git clone https://${GITHUB_TOKEN}@github.com/NTI-Django-React-Project/k8s-manifests.git
-	          cd k8s-manifests
-	          echo "✓ Cloned from GitHub"
-	        fi
+	//         # If already cloned, just update it
+	//         if [ -d "k8s-manifests/.git" ]; then
+	//           echo "Repository already exists, updating..."
+	//           cd k8s-manifests
+	//           git fetch origin main
+	//           git reset --hard origin/main  # Force sync with GitHub
+	//           git clean -fd  # Remove any local changes
+	//           echo "✓ Synced with latest from GitHub"
+	//         else
+	//           echo "First time clone..."
+	//           git clone https://${GITHUB_TOKEN}@github.com/NTI-Django-React-Project/k8s-manifests.git
+	//           cd k8s-manifests
+	//           echo "✓ Cloned from GitHub"
+	//         fi
 	        
-	        echo "All your manifests are here:"
-	        ls -la
-	        ls -la backend/
+	//         echo "All your manifests are here:"
+	//         ls -la
+	//         ls -la backend/
 	        
-	        DEPLOYMENT_FILE="backend/deployment.yaml"
-	        NEW_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
+	//         DEPLOYMENT_FILE="backend/deployment.yaml"
+	//         NEW_IMAGE="${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}"
 	        
-	        echo "Current image:"
-	        grep "image:" ${DEPLOYMENT_FILE}
+	//         echo "Current image:"
+	//         grep "image:" ${DEPLOYMENT_FILE}
 	        
-	        echo "Updating to: ${NEW_IMAGE}"
-	        sed -i "s|image:.*backend.*|image: ${NEW_IMAGE}|g" ${DEPLOYMENT_FILE}
+	//         echo "Updating to: ${NEW_IMAGE}"
+	//         sed -i "s|image:.*backend.*|image: ${NEW_IMAGE}|g" ${DEPLOYMENT_FILE}
 	        
-	        echo "New image:"
-	        grep "image:" ${DEPLOYMENT_FILE}
+	//         echo "New image:"
+	//         grep "image:" ${DEPLOYMENT_FILE}
 	        
-	        git config user.email "jenkins-ci@nti-project.com"
-	        git config user.name "Jenkins CI Bot"
-	        git add ${DEPLOYMENT_FILE}
-	        git commit -m "ci: update backend to ${IMAGE_TAG} [Build: ${BUILD_NUMBER}]"
-	        git push https://${GITHUB_TOKEN}@github.com/NTI-Django-React-Project/k8s-manifests.git main
+	//         git config user.email "jenkins-ci@nti-project.com"
+	//         git config user.name "Jenkins CI Bot"
+	//         git add ${DEPLOYMENT_FILE}
+	//         git commit -m "ci: update backend to ${IMAGE_TAG} [Build: ${BUILD_NUMBER}]"
+	//         git push https://${GITHUB_TOKEN}@github.com/NTI-Django-React-Project/k8s-manifests.git main
 	        
-	        echo "✓ Deployment updated successfully!"
-	      '''
-	    }
-	  }
-	}
+	//         echo "✓ Deployment updated successfully!"
+	//       '''
+	//     }
+	//   }
+	// }
   } // stages
 
   post {
