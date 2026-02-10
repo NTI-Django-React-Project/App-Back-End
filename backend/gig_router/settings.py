@@ -16,8 +16,9 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 #ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*').split(',')
 ALLOWED_HOSTS = config(
     'ALLOWED_HOSTS',
-    default='yassinabuelsheikh.store,.yassinabuelsheikh.store,localhost,127.0.0.1'
+    default='yassinabuelsheikh.store,.yassinabuelsheikh.store,backend,backend.backend,backend.backend.svc,localhost,127.0.0.1'
 ).split(',')
+
 ALLOWED_HOSTS += ['*']
 # ALLOWED_HOSTS = config(
 #     'ALLOWED_HOSTS',
