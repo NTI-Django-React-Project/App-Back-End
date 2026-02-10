@@ -205,7 +205,7 @@ END
     stage('SonarQube Analysis') {
       steps {
         dir("${BACKEND_DIR}") {
-          withSonarQubeEnv('mazen-sonerqube') {
+          withSonarQubeEnv('sonarqube') {
             sh """
               ${tool 'sonar-scanner'}/bin/sonar-scanner
             """
