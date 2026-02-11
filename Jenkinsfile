@@ -348,10 +348,10 @@ END
 	// stage('Update Kubernetes Manifest') {
 
 
-	  		echo "Pushing Docker images..."
-        docker tag ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-	    docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-	    docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+	  		// echo "Pushing Docker images..."
+     //    docker tag ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+	    // docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+	    // docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
 
 	    // docker tag ${ECR_REPO}:${IMAGE_TAG} \
      //             ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
