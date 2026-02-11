@@ -3,20 +3,16 @@ pipeline {
 
   environment {
     PROJECT_NAME = 'gig-router-backend'
+	  //ECR Env
     BACKEND_DIR = 'backend'
-
-    // AWS_REGION = 'us-east-1'
     AWS_REGION = 'eu-north-1'
-    // AWS_ACCOUNT_ID = '517757113300'
-	  
 	AWS_ACCOUNT_ID = '231056963705'
     ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-    // ECR_REPO = 'backend-app'
     ECR_REPO = 'gig-route-backend'
 
     SHORT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
     IMAGE_TAG = "${BUILD_NUMBER}-${SHORT_COMMIT}"
-
+//DB Env
     DB_NAME = 'testdb'
     DB_USER = 'test'
     DB_PASS = 'test'
@@ -252,6 +248,34 @@ END
         }
       }
     }
+	  
+// === NEW STAGE: Push Python Package to Nexus ===
+	stage('Build & Upload Python Package to Nexus') {
+	  steps {
+	    dir("${BACKEND_DIR}") {
+	      withCredentials([usernamePassword(credentialsId: 'nexus-cred', usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
+	        sh '''
+	        echo "[distutils]
+	index-servers =
+	    nexus
+	
+	[nexus]
+	repository: http://51.20.143.84:8081/repository/python-backend-app/
+	username: ${NEXUS_USER}
+	password: ${NEXUS_PASS}" > ~/.pypirc
+	
+	        . venv/bin/activate
+	
+	        # Build Python package
+	        python setup.py sdist bdist_wheel
+	
+	        # Upload to Nexus
+	        twine upload --repository nexus dist/*
+	        '''
+	      }
+	    }
+	  }
+	}
 
 	  
     stage('Kaniko Build (to tar)') {
