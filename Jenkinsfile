@@ -292,7 +292,7 @@ END
         echo "Scanning Docker image for vulnerabilities..."
         docker run --rm \
           -v /var/run/docker.sock:/var/run/docker.sock \
-		  -v trivy-cache:/root/.cache/trivy
+		  -v trivy-cache:/root/.cache/trivy \
           aquasec/trivy:latest image \
 	  --scanners vuln \
           --severity HIGH,CRITICAL \
