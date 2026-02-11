@@ -336,14 +336,10 @@ END
 	    echo "Logging into ECR..."
 	    aws ecr get-login-password --region ${AWS_REGION} | \
 	      docker login --username AWS --password-stdin ${ECR_REGISTRY}
-		      echo "Tagging image..."
-      docker tag ${ECR_REPO}:${IMAGE_TAG} \
-                 ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-      docker tag ${ECR_REPO}:${IMAGE_TAG} \
-                 ${ECR_REGISTRY}/${ECR_REPO}:latest
-      echo "Pushing images..."
-      docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-      docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+	    echo "Pushing Docker images..."
+        docker tag ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+	    docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+	    docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
 
 	    """
 	  }
@@ -352,12 +348,18 @@ END
 	// stage('Update Kubernetes Manifest') {
 
 
-	  		// echo "Pushing Docker images..."
-     //    docker tag ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-	    // docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-	    // docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+	  		echo "Pushing Docker images..."
+        docker tag ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+	    docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+	    docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
 
-	  
+	    // docker tag ${ECR_REPO}:${IMAGE_TAG} \
+     //             ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+     //  docker tag ${ECR_REPO}:${IMAGE_TAG} \
+     //             ${ECR_REGISTRY}/${ECR_REPO}:latest
+     //  echo "Pushing images..."
+     //  docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+     //  docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
  //      steps {
  //        withCredentials([usernamePassword(
  //          credentialsId: 'github-creds',
