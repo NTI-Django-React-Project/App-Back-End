@@ -5,10 +5,14 @@ pipeline {
     PROJECT_NAME = 'gig-router-backend'
     BACKEND_DIR = 'backend'
 
-    AWS_REGION = 'us-east-1'
-    AWS_ACCOUNT_ID = '517757113300'
+    // AWS_REGION = 'us-east-1'
+    AWS_REGION = 'us-north-1'
+    // AWS_ACCOUNT_ID = '517757113300'
+	  
+	AWS_ACCOUNT_ID = '231056963705'
     ECR_REGISTRY = "${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
-    ECR_REPO = 'backend-app'
+    // ECR_REPO = 'backend-app'
+    ECR_REPO = 'gig-route-backend'
 
     SHORT_COMMIT = sh(returnStdout: true, script: "git rev-parse --short HEAD").trim()
     IMAGE_TAG = "${BUILD_NUMBER}-${SHORT_COMMIT}"
@@ -297,6 +301,7 @@ END
 	  --scanners vuln \
           --severity HIGH,CRITICAL \
 		  --timeout 15m \
+		  --skip-db-update \
           --exit-code 0 \
           ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
         echo "Security scan passed"
@@ -304,26 +309,41 @@ END
       }
     }
 
-    stage('Push to ECR') {
-      steps {
-        withCredentials([[
-          $class: 'AmazonWebServicesCredentialsBinding',
-          credentialsId: 'aws-ecr-creds'
-        ]]) {
-          sh '''
-          echo "Logging into ECR..."
-          aws ecr get-login-password --region ${AWS_REGION} | \
-            docker login --username AWS --password-stdin ${ECR_REGISTRY}
+    // stage('Push to ECR') {
+    //   steps {
+    //     withCredentials([[
+    //       $class: 'AmazonWebServicesCredentialsBinding',
+    //       credentialsId: 'aws-ecr-creds'
+    //     ]]) {
+    //       sh '''
+    //       echo "Logging into ECR..."
+    //       aws ecr get-login-password --region ${AWS_REGION} | \
+    //         docker login --username AWS --password-stdin ${ECR_REGISTRY}
 
-          echo "Pushing Docker images..."
-          docker tag ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-          docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
-          docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
-          echo "Image pushed successfully"
-          '''
-        }
-      }
-    }
+    //       echo "Pushing Docker images..."
+    //       docker tag ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+    //       docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+    //       docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+    //       echo "Image pushed successfully"
+    //       '''
+    //     }
+    //   }
+    // }
+
+	stage('Push to ECR') {
+	  steps {
+	    sh """
+	    echo "Logging into ECR..."
+	    aws ecr get-login-password --region ${AWS_REGION} | \
+	      docker login --username AWS --password-stdin ${ECR_REGISTRY}
+		echo "Pushing Docker images..."
+        docker tag ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG} ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+	    docker push ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
+	    docker push ${ECR_REGISTRY}/${ECR_REPO}:latest
+	    """
+	  }
+	}
+
 	// stage('Update Kubernetes Manifest') {
  //      steps {
  //        withCredentials([usernamePassword(
