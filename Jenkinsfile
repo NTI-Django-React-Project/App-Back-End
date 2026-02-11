@@ -6,7 +6,7 @@ pipeline {
     BACKEND_DIR = 'backend'
 
     // AWS_REGION = 'us-east-1'
-    AWS_REGION = 'us-north-1'
+    AWS_REGION = 'eu-north-1'
     // AWS_ACCOUNT_ID = '517757113300'
 	  
 	AWS_ACCOUNT_ID = '231056963705'
