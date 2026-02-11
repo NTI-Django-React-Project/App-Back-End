@@ -250,6 +250,33 @@ END
     }
 	  
 // === NEW STAGE: Push Python Package to Nexus ===
+	// stage('Build & Upload Python Package to Nexus') {
+	//   steps {
+	//     dir("${BACKEND_DIR}") {
+	//       withCredentials([usernamePassword(credentialsId: 'nexus-cred', usernameVariable: 'NEXUS_USER', passwordVariable: 'NEXUS_PASS')]) {
+	//         sh '''
+	//         echo "[distutils]
+	// index-servers =
+	//     nexus
+	
+	// [nexus]
+	// repository: http://51.20.143.84:8081/repository/python-backend-app/
+	// username: ${NEXUS_USER}
+	// password: ${NEXUS_PASS}" > ~/.pypirc
+	
+	//         . venv/bin/activate
+	
+	//         # Build Python package
+	//         python setup.py sdist bdist_wheel
+	
+	//         # Upload to Nexus
+	//         twine upload --repository nexus dist/*
+	//         '''
+	//       }
+	//     }
+	//   }
+	// }
+
 	stage('Build & Upload Python Package to Nexus') {
 	  steps {
 	    dir("${BACKEND_DIR}") {
@@ -264,9 +291,14 @@ END
 	username: ${NEXUS_USER}
 	password: ${NEXUS_PASS}" > ~/.pypirc
 	
+	        # Activate venv
 	        . venv/bin/activate
 	
-	        # Build Python package
+	        # Upgrade packaging tools (VERY IMPORTANT)
+	        pip install --upgrade pip
+	        pip install setuptools wheel twine
+	
+	        # Build package
 	        python setup.py sdist bdist_wheel
 	
 	        # Upload to Nexus
