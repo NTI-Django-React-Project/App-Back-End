@@ -347,59 +347,116 @@ password: ${NEXUS_PASS}" > ~/.pypirc
         }
     } // stages
 
+    // post {
+    //     always {
+    //         echo "Cleaning up resources..."
+    //         sh 'docker rm -f test-db || true'
+
+    //         script {
+    //             try {
+    //                 publishHTML([
+    //                     allowMissing: true,
+    //                     alwaysLinkToLastBuild: true,
+    //                     keepAll: true,
+    //                     reportDir: 'backend/htmlcov',
+    //                     reportFiles: 'index.html',
+    //                     reportName: 'Coverage Report'
+    //                 ])
+    //             } catch (Exception e) {
+    //                 echo "Could not publish coverage report: ${e.message}"
+    //             }
+    //         }
+
+    //         cleanWs()
+    //     }
+
+    //     success {
+    //         echo '✅ Pipeline completed successfully'
+    //         sh """
+    //         curl -X POST http://174.129.167.238:5678/webhook/essam \
+    //             -H "Content-Type: application/json" \
+    //             -d '{
+    //                 "status": "SUCCESS",
+    //                 "job": "${JOB_NAME}",
+    //                 "build": "${BUILD_NUMBER}",
+    //                 "image": "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}",
+    //                 "tag": "${IMAGE_TAG}",
+    //                 "url": "${BUILD_URL}"
+    //             }'
+    //         """
+    //     }
+
+    //     failure {
+    //         echo '❌ Pipeline failed'
+    //         sh """
+    //         curl -X POST http://174.129.167.238:5678/webhook/essam \
+    //             -H "Content-Type: application/json" \
+    //             -d '{
+    //                 "status": "FAILED",
+    //                 "job": "${JOB_NAME}",
+    //                 "build": "${BUILD_NUMBER}",
+    //                 "image": "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}",
+    //                 "tag": "${IMAGE_TAG}",
+    //                 "url": "${BUILD_URL}"
+    //             }'
+    //         """
+    //     }
+    // }
     post {
-        always {
-            echo "Cleaning up resources..."
-            sh 'docker rm -f test-db || true'
-
-            script {
-                try {
-                    publishHTML([
-                        allowMissing: true,
-                        alwaysLinkToLastBuild: true,
-                        keepAll: true,
-                        reportDir: 'backend/htmlcov',
-                        reportFiles: 'index.html',
-                        reportName: 'Coverage Report'
-                    ])
-                } catch (Exception e) {
-                    echo "Could not publish coverage report: ${e.message}"
-                }
-            }
-
-            cleanWs()
+      always {
+        echo "Cleaning up resources..."
+        sh 'docker rm -f test-db || true'
+    
+        script {
+          try {
+            publishHTML([
+              allowMissing: true,
+              alwaysLinkToLastBuild: true,
+              keepAll: true,
+              reportDir: 'backend/htmlcov',
+              reportFiles: 'index.html',
+              reportName: 'Coverage Report'
+            ])
+          } catch (Exception e) {
+            echo "Could not publish coverage report: ${e.message}"
+          }
         }
-
-        success {
-            echo '✅ Pipeline completed successfully'
-            sh """
-            curl -X POST http://174.129.167.238:5678/webhook/essam \
-                -H "Content-Type: application/json" \
-                -d '{
-                    "status": "SUCCESS",
-                    "job": "${JOB_NAME}",
-                    "build": "${BUILD_NUMBER}",
-                    "image": "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}",
-                    "tag": "${IMAGE_TAG}",
-                    "url": "${BUILD_URL}"
-                }'
-            """
-        }
-
-        failure {
-            echo '❌ Pipeline failed'
-            sh """
-            curl -X POST http://174.129.167.238:5678/webhook/essam \
-                -H "Content-Type: application/json" \
-                -d '{
-                    "status": "FAILED",
-                    "job": "${JOB_NAME}",
-                    "build": "${BUILD_NUMBER}",
-                    "image": "${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}",
-                    "tag": "${IMAGE_TAG}",
-                    "url": "${BUILD_URL}"
-                }'
-            """
-        }
+    
+        cleanWs()
+      }
+    
+      success {
+        echo '✅ Pipeline completed successfully'
+    
+        sh """
+          curl -X POST http://174.129.167.238:5678/webhook/essam \
+          -H "Content-Type: application/json" \
+          -d '{
+            "status": "SUCCESS",
+            "job": "${JOB_NAME}",
+            "build": "${BUILD_NUMBER}",
+            "image": "${ECR_REGISTRY}/${ECR_REPO}",
+            "tag": "${IMAGE_TAG}",
+            "url": "${BUILD_URL}"
+          }'
+        """
+      }
+    
+      failure {
+        echo '❌ Pipeline failed'
+    
+        sh """
+          curl -X POST http://174.129.167.238:5678/webhook/essam \
+          -H "Content-Type: application/json" \
+          -d '{
+            "status": "FAILED",
+            "job": "${JOB_NAME}",
+            "build": "${BUILD_NUMBER}",
+            "image": "${ECR_REGISTRY}/${ECR_REPO}",
+            "tag": "${IMAGE_TAG}",
+            "url": "${BUILD_URL}"
+          }'
+        """
+      }
     }
 }
