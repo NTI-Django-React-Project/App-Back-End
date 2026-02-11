@@ -296,7 +296,7 @@ END
 	  --scanners vuln \
           --severity HIGH,CRITICAL \
 		  --timeout 15m \
-		  --skip-db-update \
+		  // --skip-db-update \
           --exit-code 0 \
           ${ECR_REGISTRY}/${ECR_REPO}:${IMAGE_TAG}
         echo "Security scan passed"
