@@ -17,6 +17,11 @@ This repository holds the **backend application source code** that gets fed into
 
 ---
 
+> [!NOTE]
+> This repository is **not** about developing the Django application itself — it is used as a **DevOps practice** case study. The focus is on the **CI/CD pipeline**, **containerization strategy**, **security scanning**, **artifact management**, and **Kubernetes networking**. The app is a pre-built project leveraged to exercise real-world DevOps workflows.
+
+---
+
 ## 📑 Table of Contents
 
 - [What This App Is (Brief)](#-what-this-app-is-brief)
